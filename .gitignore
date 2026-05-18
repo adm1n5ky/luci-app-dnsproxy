@@ -1,0 +1,33 @@
+# Скомпилированные LuCI файлы
+*.lmo
+*.htm
+*.html
+po2lmo
+
+# Файлы локализации
+*.pot
+*.po~
+
+# Артефакты сборки OpenWrt
+*.ipk
+*.o
+*.so
+*.a
+*.ko
+build_dir/
+bin/
+staging_dir/
+tmp/
+
+# Общие файлы для разработки
+*.swp
+*~
+.DS_Store
+*.orig
+*.rej
+.*.sw?
+node_modules/
+
+# Файлы IDE
+.vscode/
+.idea/
