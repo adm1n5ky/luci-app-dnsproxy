@@ -27,5 +27,6 @@ cp luci-app-dnsproxy-main/luci-app-dnsproxy/usr/share/rpcd/acl.d/luci-app-dnspro
 rm -rf /tmp/luci-* /tmp/luci-app-dnsproxy-main /tmp/dnsproxy.tar.gz && \
 echo "Done"
 EOF
-chmod +x /usr/bin/dnsproxy-update && dnsproxy-update```
+chmod +x /usr/bin/dnsproxy-update && dnsproxy-update
+```
 dnsproxy-update
