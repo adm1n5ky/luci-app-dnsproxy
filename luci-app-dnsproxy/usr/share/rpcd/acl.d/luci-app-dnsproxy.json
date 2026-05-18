@@ -1,0 +1,29 @@
+{
+  "luci-app-dnsproxy": {
+    "description": "Grant access to DNSproxy configuration",
+    "read": {
+      "file": {
+        "/etc/config/dnsproxy": [ "read" ]
+      },
+      "ubus": {
+        "file":    [ "read" ],
+        "rc":      [ "init" ],
+        "service": [ "list" ],
+        "uci":     [ "get", "set", "commit" ]
+      },
+      "uci": [ "dnsproxy" ]
+    },
+    "write": {
+      "file": {
+        "/etc/config/dnsproxy": [ "write" ]
+      },
+      "ubus": {
+        "file":    [ "write" ],
+        "rc":      [ "init" ],
+        "service": [ "list" ],
+        "uci":     [ "get", "set", "commit" ]
+      },
+      "uci": [ "dnsproxy" ]
+    }
+  }
+}

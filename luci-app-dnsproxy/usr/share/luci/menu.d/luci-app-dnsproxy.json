@@ -1,0 +1,50 @@
+{
+  "admin/services/dnsproxy": {
+    "title": "DNSproxy",
+    "order": 60,
+    "action": {
+      "type": "view",
+      "path": "dnsproxy/main"
+    }
+  },
+  "admin/services/dnsproxy/settings": {
+    "title": "Settings",
+    "order": 10,
+    "action": {
+      "type": "view",
+      "path": "dnsproxy/main"
+    }
+  },
+  "admin/services/dnsproxy/file": {
+    "title": "Configuration File",
+    "order": 20,
+    "action": {
+      "type": "view",
+      "path": "dnsproxy/file"
+    }
+  },
+  "admin/services/dnsproxy/diagnostics": {
+    "title": "Diagnostics",
+    "order": 30,
+    "action": {
+      "type": "view",
+      "path": "dnsproxy/diagnostics"
+    }
+  },
+  "admin/services/dnsproxy/logread": {
+    "title": "System Log",
+    "order": 40,
+    "action": {
+      "type": "view",
+      "path": "dnsproxy/logread"
+    }
+  },
+  "admin/services/dnsproxy/help": {
+    "title": "Help",
+    "order": 50,
+    "action": {
+      "type": "view",
+      "path": "dnsproxy/help"
+    }
+  }
+}
