@@ -24,7 +24,7 @@ return view.extend({
   handleDig: function(ev) {
     var host = document.getElementById('dnsproxy-diag-host').value.trim();
     if (!host) return;
-    return this.handleCommand('nslookup', [host, '127.0.0.1#5353']);
+    return this.handleCommand('nslookup', [host, '127.0.0.1:5353']);
   },
 
   handlePing: function(ev) {
@@ -55,8 +55,8 @@ return view.extend({
               'type':        'text',
               'class':       'cbi-input-text',
               'style':       'width:20em;margin-right:.5em',
-              'placeholder': 'example.com',
-              'value':       'example.com'
+              'placeholder': '5vps.ru',
+              'value':       '5vps.ru'
             }),
             E('span', { 'class': 'diag-action' }, [
               E('button', {
