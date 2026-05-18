@@ -1,2 +1,2 @@
 # luci-app-dnsproxy
-OpenWrt веб паелька для Adguard DNS Proxy
+OpenWrt веб панелька для Adguard DNS Proxy
