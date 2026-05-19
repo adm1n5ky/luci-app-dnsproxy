@@ -58,7 +58,7 @@ return view.extend({
     render: function () {
         var self = this
         return E('div', { class: 'cbi-map' }, [
-            E('h2', {}, _('DNSproxy - Diagnostics')),
+            E('h3', {}, _('DNS Proxy - Diagnostics')),
             E(
                 'div',
                 { class: 'cbi-map-descr' },
