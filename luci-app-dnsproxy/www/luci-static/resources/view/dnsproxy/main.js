@@ -158,7 +158,7 @@ function renderStatus(initStatus) {
     var longGap = '\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0'
 
     return E('div', {}, [
-        E('h3', {}, _('DNS Proxy - Status')),
+        E('h3', {}, _('DNS Proxy: Status')),
 
         // Строка: Service Status
         E('div', { class: 'cbi-value' }, [
@@ -278,7 +278,7 @@ return view.extend({
 
         var m = new form.JSONMap(
             mapdata,
-            _('DNS Proxy - Configuration'),
+            _('Configuration'),
             _(
                 'A simple DNS proxy server that supports all existing DNS protocols including DNS-over-TLS, DNS-over-HTTPS, DNSCrypt, and DNS-over-QUIC. Moreover, it can work as a DNS-over-HTTPS, DNS-over-TLS or DNS-over-QUIC server.',
             ),
