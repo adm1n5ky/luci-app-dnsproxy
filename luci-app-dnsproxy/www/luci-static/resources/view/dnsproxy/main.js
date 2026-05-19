@@ -302,10 +302,7 @@ return view.extend({
         return Promise.all([
             uci.load('dnsproxy'),
             L.resolveDefault(callServiceStatus('dnsproxy'), {}),
-            L.resolveDefault(
-                fs.exec_direct('apk', ['list', '-s', 'dnsproxy']),
-                null,
-            ),
+            L.resolveDefault(fs.exec_direct('dnsproxy', ['--version']), null),
         ])
     },
 
