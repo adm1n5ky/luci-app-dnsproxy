@@ -1,190 +1,226 @@
 'use strict'
 'require view'
-'require fs'
 'require ui'
 'require poll'
-
-var LOG_LINES = 200
-var currentFilter = 'all'
+'require dom'
 
 return view.extend({
-    load: function () {
-        return L.resolveDefault(
-            fs.exec_direct('logread', ['-l', String(LOG_LINES)]),
-            '',
-        )
-    },
+    logContent: '',
+    filterLevel: 'all',
 
-    refresh: function (filter) {
-        var filterVal = filter || currentFilter
-        return L.resolveDefault(
-            fs.exec_direct('logread', ['-l', String(LOG_LINES)]),
-            '',
-        ).then(function (log) {
-            var out = document.getElementById('dnsproxy-log-output')
-            if (out) {
-                var filteredLog = self.filterLog(log, filterVal)
-                out.innerHTML =
-                    filteredLog || _('No dnsproxy messages found in syslog.')
-                out.scrollTop = out.scrollHeight
-            }
+    render: function () {
+        var contentDiv = E('div', {
+            id: 'log_content',
+            style: 'width: 100%; height: 500px; overflow-y: scroll; background: #fff; border: 1px solid #ccc; padding: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap;',
         })
+
+        var filterSelect = E(
+            'select',
+            {
+                id: 'log_filter',
+                change: ui.createHandlerFn(this, 'onFilterChange'),
+            },
+            [
+                E('option', { value: 'all' }, 'All'),
+                E('option', { value: 'error' }, 'Errors'),
+                E('option', { value: 'warn' }, 'Warnings'),
+                E('option', { value: 'info' }, 'Info'),
+                E('option', { value: 'debug' }, 'Debug'),
+            ],
+        )
+
+        var refreshBtn = E(
+            'button',
+            {
+                class: 'btn cbi-button',
+                click: ui.createHandlerFn(this, 'handleRefresh'),
+            },
+            _('Refresh'),
+        )
+
+        var clearBtn = E(
+            'button',
+            {
+                class: 'btn cbi-button',
+                click: ui.createHandlerFn(this, 'handleClear'),
+            },
+            _('Clear Log'),
+        )
+
+        var controls = E('div', { style: 'margin-bottom: 10px;' }, [
+            E('span', { style: 'margin-right: 15px;' }, [
+                _('Filter: '),
+                filterSelect,
+            ]),
+            refreshBtn,
+            ' ',
+            clearBtn,
+        ])
+
+        return E([E('h3', _('System Log - DNSProxy')), controls, contentDiv])
     },
 
-    filterLog: function (log, filter) {
-        if (!log) return ''
-        var lines = log.split('\n')
-        var result = []
-
-        for (var i = 0; i < lines.length; i++) {
-            var line = lines[i]
-            if (
-                line.indexOf('prefix=dnsproxy') === -1 &&
-                line.indexOf('dnsproxy[') === -1
-            ) {
-                continue
-            }
-
-            if (filter !== 'all') {
-                if (
-                    filter === 'ERROR' &&
-                    line.indexOf(' ERROR ') === -1 &&
-                    line.indexOf(' err=') === -1
-                ) {
-                    continue
-                } else if (filter === 'WARN' && line.indexOf(' WARN ') === -1) {
-                    continue
-                } else if (filter === 'INFO' && line.indexOf(' INFO ') === -1) {
-                    continue
-                } else if (
-                    filter === 'DEBUG' &&
-                    line.indexOf(' DEBUG ') === -1
-                ) {
-                    continue
-                }
-            }
-
-            result.push(this.highlightLine(line))
-        }
-        return result.join('\n')
+    onFilterChange: function (ev) {
+        this.filterLevel = ev.target.value
+        this.renderLog(this.logContent)
     },
 
-    highlightLine: function (line) {
-        var escaped = line
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-
-        if (
-            escaped.indexOf(' ERROR ') !== -1 ||
-            escaped.indexOf(' err=') !== -1
-        ) {
-            return '<span style="color:#ff4444;">' + escaped + '</span>'
-        } else if (escaped.indexOf(' WARN ') !== -1) {
-            return '<span style="color:#ffbb33;">' + escaped + '</span>'
-        } else if (escaped.indexOf(' DEBUG ') !== -1) {
-            return '<span style="color:#888888;">' + escaped + '</span>'
-        } else if (escaped.indexOf(' INFO ') !== -1) {
-            return '<span style="color:#00C851;">' + escaped + '</span>'
-        }
-        return escaped
+    handleRefresh: function (ev) {
+        this.loadLogs()
     },
 
-    render: function (log) {
-        var self = this
-
-        poll.add(function () {
-            return self.refresh()
-        }, 10)
-
-        return E('div', { class: 'cbi-map' }, [
-            E('h3', {}, _('DNS Proxy - System Log')),
-            E(
-                'div',
-                { class: 'cbi-map-descr' },
-                _(
-                    'Syslog messages filtered by "dnsproxy". Last %d lines.',
-                ).format(LOG_LINES),
-            ),
-
-            E('div', { class: 'cbi-section' }, [
+    handleClear: function (ev) {
+        ui.showModal(_('Clear Log'), [
+            E('p', _('Are you sure you want to clear the system log?')),
+            E('div', { class: 'right' }, [
                 E(
-                    'div',
+                    'button',
                     {
-                        style: 'margin-bottom:.5em;display:flex;align-items:center;gap:0.5em;flex-wrap:wrap',
+                        class: 'btn cbi-button',
+                        click: ui.hideModal,
                     },
-                    [
-                        E(
-                            'label',
-                            { style: 'font-weight:bold' },
-                            _('Log Level: '),
-                            E(
-                                'select',
-                                {
-                                    id: 'dnsproxy-log-filter',
-                                    style: 'min-width:120px;padding:4px',
-                                    change: function (ev) {
-                                        currentFilter = ev.target.value
-                                        return self.refresh(currentFilter)
-                                    },
-                                },
-                                [
-                                    E('option', { value: 'all' }, _('All')),
-                                    E(
-                                        'option',
-                                        { value: 'ERROR' },
-                                        _('Errors'),
-                                    ),
-                                    E(
-                                        'option',
-                                        { value: 'WARN' },
-                                        _('Warnings'),
-                                    ),
-                                    E('option', { value: 'INFO' }, _('Info')),
-                                    E('option', { value: 'DEBUG' }, _('Debug')),
-                                ],
-                            ),
-                        ),
-                        '\u00a0\u00a0',
-                        E(
-                            'button',
-                            {
-                                class: 'btn cbi-button',
-                                click: function () {
-                                    return self.refresh(currentFilter)
-                                },
-                            },
-                            _('Refresh'),
-                        ),
-                        '\u00a0\u00a0',
-                        E(
-                            'button',
-                            {
-                                class: 'btn cbi-button cbi-button-reset',
-                                click: function () {
-                                    var out = document.getElementById(
-                                        'dnsproxy-log-output',
-                                    )
-                                    if (out) out.innerHTML = ''
-                                },
-                            },
-                            _('Clear'),
-                        ),
-                    ],
+                    _('Cancel'),
                 ),
+                ' ',
                 E(
-                    'div',
+                    'button',
                     {
-                        id: 'dnsproxy-log-output',
-                        style: 'width:100%;font-family:monospace;font-size:.85em;white-space:pre-wrap;word-break:break-all;background:#f5f5f5;border:1px solid #ddd;padding:10px;max-height:600px;overflow-y:auto;min-height:400px;line-height:1.4',
+                        class: 'btn cbi-button negative',
+                        click: ui.createHandlerFn(this, 'confirmClear'),
                     },
-                    [self.filterLog(log || '', 'all')],
+                    _('Clear'),
                 ),
             ]),
         ])
     },
 
-    handleSave: null,
-    handleSaveApply: null,
-    handleReset: null,
+    confirmClear: function (ev) {
+        ui.hideModal()
+        return L.resolveDefault(fs.exec('/sbin/logread', ['-c']), {}).then(
+            () => {
+                this.logContent = ''
+                this.renderLog('')
+            },
+        )
+    },
+
+    loadLogs: function () {
+        var self = this
+        // Исправлено: убираем grep, берем последние 200 строк и фильтруем в JS
+        return fs
+            .exec('/sbin/logread', ['-e', 'dnsproxy'])
+            .then(function (res) {
+                self.logContent = res.stdout || ''
+                self.renderLog(self.logContent)
+            })
+            .catch(function (err) {
+                console.error('Failed to load logs:', err)
+            })
+    },
+
+    renderLog: function (rawLog) {
+        var container = document.getElementById('log_content')
+        if (!container) return
+
+        if (!rawLog) {
+            container.innerHTML = '<em>No logs found</em>'
+            return
+        }
+
+        var lines = rawLog.split('\n')
+        var filteredLines = []
+        var level = this.filterLevel
+
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i]
+            if (!line.trim()) continue
+
+            // Базовая фильтрация по dnsproxy (на случай если logread вернул лишнее)
+            if (
+                line.indexOf('dnsproxy') === -1 &&
+                line.indexOf('prefix=dnsproxy') === -1
+            ) {
+                continue
+            }
+
+            var showLine = false
+            var colorClass = ''
+            var icon = ''
+
+            if (level === 'all') {
+                showLine = true
+            } else if (level === 'error') {
+                if (line.indexOf('ERROR') !== -1 || line.indexOf('err=') !== -1)
+                    showLine = true
+            } else if (level === 'warn') {
+                if (line.indexOf('WARN') !== -1 || line.indexOf('warn=') !== -1)
+                    showLine = true
+            } else if (level === 'info') {
+                if (
+                    line.indexOf('INFO') !== -1 &&
+                    line.indexOf('WARN') === -1 &&
+                    line.indexOf('ERROR') === -1
+                )
+                    showLine = true
+            } else if (level === 'debug') {
+                if (line.indexOf('DEBUG') !== -1) showLine = true
+            }
+
+            if (showLine) {
+                // Определение цвета и иконки
+                if (
+                    line.indexOf('ERROR') !== -1 ||
+                    line.indexOf('err=') !== -1
+                ) {
+                    colorClass = 'color: #d9534f; font-weight: bold;' // Красный
+                    icon = '🔴 '
+                } else if (line.indexOf('WARN') !== -1) {
+                    colorClass = 'color: #f0ad4e; font-weight: bold;' // Оранжевый
+                    icon = '🟠 '
+                } else if (line.indexOf('DEBUG') !== -1) {
+                    colorClass = 'color: #777;' // Серый
+                    icon = '⚪ '
+                } else {
+                    colorClass = 'color: #5cb85c;' // Зеленый (INFO)
+                    icon = '🟢 '
+                }
+
+                // Экранирование HTML
+                var safeLine = line
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                filteredLines.push(
+                    '<div style="' +
+                        colorClass +
+                        '">' +
+                        icon +
+                        safeLine +
+                        '</div>',
+                )
+            }
+        }
+
+        if (filteredLines.length === 0) {
+            container.innerHTML = '<em>No logs match the selected filter</em>'
+        } else {
+            container.innerHTML = filteredLines.join('')
+            // Автопрокрутка вниз
+            container.scrollTop = container.scrollHeight
+        }
+    },
+
+    handlePollApply: function () {
+        // Перезапуск поллинга при применении изменений (если бы они были)
+        return this.loadLogs()
+    },
+
+    resumePoll: function () {
+        poll.add(L.bind(this.loadLogs, this), 5)
+    },
+
+    startPoll: function () {
+        this.loadLogs()
+        poll.add(L.bind(this.loadLogs, this), 5)
+    },
 })
