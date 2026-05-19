@@ -149,8 +149,12 @@ function makeActionHandler(action) {
 // apk info dnsproxy возвращает строку вида "dnsproxy-0.73.4-r0" или пустую строку
 function parseVersion(apkOutput) {
     if (!apkOutput || !apkOutput.trim()) return null // null = не установлен
-    var m = apkOutput.trim().match(/dnsproxy[- ](\S+)/)
-    return m ? m[1] : apkOutput.trim()
+
+    // Ожидаем формат: dnsproxy-0.81.0-r1 x86_64 ... [installed]
+    // Ищем имя пакета, тире и версию до первого пробела
+    var m = apkOutput.trim().match(/^dnsproxy-([^\s]+)/)
+
+    return m ? m[1].trim() : null
 }
 
 // Рендер статус-блока — отдельно от Map, как в PBR
@@ -298,7 +302,10 @@ return view.extend({
         return Promise.all([
             uci.load('dnsproxy'),
             L.resolveDefault(callServiceStatus('dnsproxy'), {}),
-            L.resolveDefault(fs.exec_direct('apk', ['info', 'dnsproxy']), ''),
+            L.resolveDefault(
+                fs.exec_direct('apk', ['list', '--installed', 'dnsproxy']),
+                null,
+            ),
         ])
     },
 
