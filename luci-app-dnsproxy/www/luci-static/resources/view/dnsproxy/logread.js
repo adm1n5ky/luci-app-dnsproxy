@@ -16,14 +16,12 @@ var LEVEL_COLORS = {
     FATAL: '#6f42c1',
 }
 
-// Правильная команда: logread читает весь syslog, фильтруем на клиенте
 function fetchLog() {
     return L.resolveDefault(
         fs.exec_direct('logread', ['-l', String(LOG_LINES)]),
         '',
     ).then(function (raw) {
         if (!raw) return ''
-        // Фильтруем строки, содержащие "dnsproxy"
         return raw
             .split('\n')
             .filter(function (line) {
@@ -33,16 +31,12 @@ function fetchLog() {
     })
 }
 
-// Разбирает уровень из строки лога
-// Формат: "... daemon.info dnsproxy[...]: 2026/05/19 17:02:09.xxx LEVEL ..."
 function getLineLevel(line) {
-    // Ищем уровень после внутреннего timestamp
     var m = line.match(
         /\]\s*:\s*[\d/]+ [\d:.]+\s+(DEBUG|INFO|WARN|ERROR|FATAL)\b/,
     )
     if (m) return m[1]
 
-    // Запасной вариант — по syslog facility
     if (line.indexOf('daemon.warn') !== -1) return 'WARN'
     if (line.indexOf('daemon.err') !== -1) return 'ERROR'
     if (line.indexOf('daemon.debug') !== -1) return 'DEBUG'

@@ -7,7 +7,7 @@
                 "/lib/apk/db/installed": ["read"]
             },
             "ubus": {
-                "file": ["read"],
+                "file": ["read", "exec"],
                 "rc": ["init"],
                 "service": ["list"],
                 "uci": ["get", "set", "commit"]
@@ -19,7 +19,7 @@
                 "/etc/config/dnsproxy": ["write"]
             },
             "ubus": {
-                "file": ["write"],
+                "file": ["write", "exec"],
                 "rc": ["init"],
                 "service": ["list"],
                 "uci": ["get", "set", "commit"]
