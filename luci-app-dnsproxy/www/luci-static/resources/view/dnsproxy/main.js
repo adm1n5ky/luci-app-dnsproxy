@@ -163,22 +163,29 @@ function renderStatus(initStatus) {
         // Строка: Service Status
         E('div', { class: 'cbi-value' }, [
             E('label', { class: 'cbi-value-title' }, _('Service Status')),
-            E('div', { class: 'cbi-value-field cbi-value-description' style: 'opacity:1 !important' }, [
-                E(
-                    'span',
-                    { id: 'dnsproxy-status-dot' },
-                    getStatusEmoji(enabled, running) + ' ',
-                ),
-                E(
-                    'span',
-                    { id: 'dnsproxy-status-txt' },
-                    running
-                        ? _('Running')
-                        : enabled
-                          ? _('Stopped (enabled)')
-                          : _('Disabled'),
-                ),
-            ]),
+            E(
+                'div',
+                {
+                    class: 'cbi-value-field cbi-value-description',
+                    style: 'opacity:1 !important',
+                },
+                [
+                    E(
+                        'span',
+                        { id: 'dnsproxy-status-dot' },
+                        getStatusEmoji(enabled, running) + ' ',
+                    ),
+                    E(
+                        'span',
+                        { id: 'dnsproxy-status-txt' },
+                        running
+                            ? _('Running')
+                            : enabled
+                              ? _('Stopped (enabled)')
+                              : _('Disabled'),
+                    ),
+                ],
+            ),
         ]),
 
         // Строка: Service Control — 5 кнопок
