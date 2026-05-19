@@ -26,5 +26,11 @@
             },
             "uci": ["dnsproxy"]
         }
+    },
+    "luci-app-dnsproxy-exec": {
+        "description": "Allow executing logread for dnsproxy logs",
+        "exec": {
+            "/sbin/logread": ["exec"]
+        }
     }
 }
