@@ -1,82 +1,118 @@
 'use strict'
 'require view'
 'require ui'
-'require poll'
 'require dom'
+'require fs'
+'require poll'
 
 return view.extend({
-    logContent: '',
+    logLines: [],
     filterLevel: 'all',
 
-    render: function () {
-        var contentDiv = E('div', {
-            id: 'log_content',
-            style: 'width: 100%; height: 500px; overflow-y: scroll; background: #fff; border: 1px solid #ccc; padding: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap;',
-        })
-
-        var filterSelect = E(
-            'select',
-            {
-                id: 'log_filter',
-                change: ui.createHandlerFn(this, 'onFilterChange'),
-            },
-            [
-                E('option', { value: 'all' }, 'All'),
-                E('option', { value: 'error' }, 'Errors'),
-                E('option', { value: 'warn' }, 'Warnings'),
-                E('option', { value: 'info' }, 'Info'),
-                E('option', { value: 'debug' }, 'Debug'),
-            ],
-        )
-
-        var refreshBtn = E(
-            'button',
-            {
-                class: 'btn cbi-button',
-                click: ui.createHandlerFn(this, 'handleRefresh'),
-            },
-            _('Refresh'),
-        )
-
-        var clearBtn = E(
-            'button',
-            {
-                class: 'btn cbi-button',
-                click: ui.createHandlerFn(this, 'handleClear'),
-            },
-            _('Clear Log'),
-        )
-
-        var controls = E('div', { style: 'margin-bottom: 10px;' }, [
-            E('span', { style: 'margin-right: 15px;' }, [
-                _('Filter: '),
-                filterSelect,
-            ]),
-            refreshBtn,
-            ' ',
-            clearBtn,
-        ])
-
-        return E([E('h3', _('System Log - DNSProxy')), controls, contentDiv])
+    load: function () {
+        return L.resolveDefault(fs.read('/etc/config/dnsproxy'), '')
     },
 
-    onFilterChange: function (ev) {
-        this.filterLevel = ev.target.value
-        this.renderLog(this.logContent)
-    },
+    render: function (data) {
+        var self = this
 
-    handleRefresh: function (ev) {
-        this.loadLogs()
-    },
-
-    handleClear: function (ev) {
-        ui.showModal(_('Clear Log'), [
-            E('p', _('Are you sure you want to clear the system log?')),
+        // Создаем контейнер для управления
+        var controls = E('div', { class: 'cbi-map-descr' }, [
+            E('h3', {}, _('System Log')),
+            E(
+                'div',
+                {
+                    class: 'flex-row',
+                    style: 'display:flex; gap:10px; margin-bottom:10px; align-items:center;',
+                },
+                [
+                    E(
+                        'label',
+                        {
+                            class: 'cbi-value-title',
+                            style: 'width:auto; min-width:80px;',
+                        },
+                        _('Filter Level:'),
+                    ),
+                    E(
+                        'select',
+                        {
+                            id: 'logLevelFilter',
+                            class: 'cbi-input-select',
+                            style: 'width:auto; min-width:150px;',
+                            change: ui.createHandlerFn(this, 'onFilterChange'),
+                        },
+                        [
+                            E('option', { value: 'all' }, _('All Messages')),
+                            E('option', { value: 'error' }, _('Errors Only')),
+                            E(
+                                'option',
+                                { value: 'warn' },
+                                _('Warnings & Errors'),
+                            ),
+                            E('option', { value: 'info' }, _('Info & Above')),
+                            E('option', { value: 'debug' }, _('Debug & Above')),
+                        ],
+                    ),
+                ],
+            ),
             E('div', { class: 'right' }, [
                 E(
                     'button',
                     {
-                        class: 'btn cbi-button',
+                        class: 'btn cbi-button cbi-button-action',
+                        click: ui.createHandlerFn(this, 'handleRefresh'),
+                    },
+                    _('Refresh'),
+                ),
+                ' ',
+                E(
+                    'button',
+                    {
+                        class: 'btn cbi-button cbi-button-negative',
+                        click: ui.createHandlerFn(this, 'handleClear'),
+                    },
+                    _('Clear Log'),
+                ),
+            ]),
+        ])
+
+        // Контейнер для логов с прокруткой
+        var logContainer = E(
+            'div',
+            {
+                id: 'log-output',
+                style: 'font-family: monospace; white-space: pre-wrap; background: #f5f5f5; border: 1px solid #ccc; padding: 10px; height: 500px; overflow-y: scroll; color: #333;',
+            },
+            [E('div', { style: 'color:#666;' }, _('Loading log...'))],
+        )
+
+        // Запускаем первоначальную загрузку
+        this.refreshLog()
+
+        // Настраиваем автообновление
+        poll.add(L.bind(this.refreshLog, this), 5)
+
+        return E([controls, logContainer])
+    },
+
+    onFilterChange: function (ev) {
+        this.filterLevel = ev.target.value
+        this.renderLogLines()
+    },
+
+    handleRefresh: function (ev) {
+        this.refreshLog()
+    },
+
+    handleClear: function (ev) {
+        ui.showModal(_('Clear System Log'), [
+            E('p', {}, _('Are you sure you want to clear the system log?')),
+            E('div', { class: 'right' }, [
+                E(
+                    'button',
+                    {
+                        class: 'btn cbi-button cbi-button-neutral',
                         click: ui.hideModal,
                     },
                     _('Cancel'),
@@ -85,7 +121,7 @@ return view.extend({
                 E(
                     'button',
                     {
-                        class: 'btn cbi-button negative',
+                        class: 'btn cbi-button cbi-button-negative',
                         click: ui.createHandlerFn(this, 'confirmClear'),
                     },
                     _('Clear'),
@@ -94,133 +130,109 @@ return view.extend({
         ])
     },
 
-    confirmClear: function (ev) {
+    confirmClear: function () {
+        fs.exec('/sbin/logread', ['-c'])
         ui.hideModal()
-        return L.resolveDefault(fs.exec('/sbin/logread', ['-c']), {}).then(
-            () => {
-                this.logContent = ''
-                this.renderLog('')
-            },
-        )
+        this.refreshLog()
     },
 
-    loadLogs: function () {
+    refreshLog: function () {
         var self = this
-        // Исправлено: убираем grep, берем последние 200 строк и фильтруем в JS
-        return fs
-            .exec('/sbin/logread', ['-e', 'dnsproxy'])
+        // Исправленная команда: читаем последние 200 строк и фильтруем по dnsproxy
+        fs.exec('/bin/sh', [
+            '-c',
+            'logread | grep -E "dnsproxy\\[|prefix=dnsproxy" | tail -n 200',
+        ])
             .then(function (res) {
-                self.logContent = res.stdout || ''
-                self.renderLog(self.logContent)
+                if (res.stdout) {
+                    self.logLines = res.stdout.trim().split('\n')
+                } else {
+                    self.logLines = []
+                }
+                self.renderLogLines()
             })
             .catch(function (err) {
-                console.error('Failed to load logs:', err)
+                console.error('Failed to read log:', err)
             })
     },
 
-    renderLog: function (rawLog) {
-        var container = document.getElementById('log_content')
-        if (!container) return
+    renderLogLines: function () {
+        var output = document.getElementById('log-output')
+        if (!output) return
 
-        if (!rawLog) {
-            container.innerHTML = '<em>No logs found</em>'
+        if (this.logLines.length === 0) {
+            output.innerHTML =
+                '<div style="color:#666;">' +
+                _('No log entries found') +
+                '</div>'
             return
         }
 
-        var lines = rawLog.split('\n')
-        var filteredLines = []
+        var fragment = document.createDocumentFragment()
         var level = this.filterLevel
 
-        for (var i = 0; i < lines.length; i++) {
-            var line = lines[i]
-            if (!line.trim()) continue
+        this.logLines.forEach(function (line) {
+            if (!line) return
 
-            // Базовая фильтрация по dnsproxy (на случай если logread вернул лишнее)
-            if (
-                line.indexOf('dnsproxy') === -1 &&
-                line.indexOf('prefix=dnsproxy') === -1
-            ) {
-                continue
+            // Определение уровня логирования
+            var logLevel = 'info' // по умолчанию
+            if (line.indexOf('ERROR') !== -1 || line.indexOf('err=') !== -1)
+                logLevel = 'error'
+            else if (line.indexOf('WARN') !== -1) logLevel = 'warn'
+            else if (line.indexOf('DEBUG') !== -1) logLevel = 'debug'
+
+            // Фильтрация по уровню
+            var show = true
+            if (level === 'error' && logLevel !== 'error') show = false
+            else if (
+                level === 'warn' &&
+                logLevel !== 'error' &&
+                logLevel !== 'warn'
+            )
+                show = false
+            else if (level === 'info' && logLevel === 'debug') show = false
+            else if (level === 'debug') show = true // показывать все
+
+            if (!show) return
+
+            // Цветовая подсветка
+            var color = '#333'
+            var bg = 'transparent'
+            var prefix = ''
+
+            if (logLevel === 'error') {
+                color = '#d9534f' // Красный
+                prefix = '[ERROR] '
+                // Можно добавить жирность
+            } else if (logLevel === 'warn') {
+                color = '#f0ad4e' // Оранжевый
+                prefix = '[WARN] '
+            } else if (logLevel === 'info') {
+                color = '#5cb85c' // Зеленый
+                prefix = '[INFO] '
+            } else if (logLevel === 'debug') {
+                color = '#777' // Серый
+                prefix = '[DEBUG] '
             }
 
-            var showLine = false
-            var colorClass = ''
-            var icon = ''
+            var div = document.createElement('div')
+            div.style.color = color
+            div.style.marginBottom = '2px'
+            div.style.borderBottom = '1px solid rgba(0,0,0,0.05)'
 
-            if (level === 'all') {
-                showLine = true
-            } else if (level === 'error') {
-                if (line.indexOf('ERROR') !== -1 || line.indexOf('err=') !== -1)
-                    showLine = true
-            } else if (level === 'warn') {
-                if (line.indexOf('WARN') !== -1 || line.indexOf('warn=') !== -1)
-                    showLine = true
-            } else if (level === 'info') {
-                if (
-                    line.indexOf('INFO') !== -1 &&
-                    line.indexOf('WARN') === -1 &&
-                    line.indexOf('ERROR') === -1
-                )
-                    showLine = true
-            } else if (level === 'debug') {
-                if (line.indexOf('DEBUG') !== -1) showLine = true
-            }
+            // Форматируем текст: добавляем префикс для наглядности, но оставляем оригинал
+            // Для лучшего вида можно разбить дату и сообщение, но пока оставим строкой
+            div.textContent = line
 
-            if (showLine) {
-                // Определение цвета и иконки
-                if (
-                    line.indexOf('ERROR') !== -1 ||
-                    line.indexOf('err=') !== -1
-                ) {
-                    colorClass = 'color: #d9534f; font-weight: bold;' // Красный
-                    icon = '🔴 '
-                } else if (line.indexOf('WARN') !== -1) {
-                    colorClass = 'color: #f0ad4e; font-weight: bold;' // Оранжевый
-                    icon = '🟠 '
-                } else if (line.indexOf('DEBUG') !== -1) {
-                    colorClass = 'color: #777;' // Серый
-                    icon = '⚪ '
-                } else {
-                    colorClass = 'color: #5cb85c;' // Зеленый (INFO)
-                    icon = '🟢 '
-                }
+            fragment.appendChild(div)
+        })
 
-                // Экранирование HTML
-                var safeLine = line
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                filteredLines.push(
-                    '<div style="' +
-                        colorClass +
-                        '">' +
-                        icon +
-                        safeLine +
-                        '</div>',
-                )
-            }
+        output.innerHTML = ''
+        output.appendChild(fragment)
+
+        // Автопрокрутка вниз, если фильтр не активен или мы внизу
+        if (level === 'all') {
+            output.scrollTop = output.scrollHeight
         }
-
-        if (filteredLines.length === 0) {
-            container.innerHTML = '<em>No logs match the selected filter</em>'
-        } else {
-            container.innerHTML = filteredLines.join('')
-            // Автопрокрутка вниз
-            container.scrollTop = container.scrollHeight
-        }
-    },
-
-    handlePollApply: function () {
-        // Перезапуск поллинга при применении изменений (если бы они были)
-        return this.loadLogs()
-    },
-
-    resumePoll: function () {
-        poll.add(L.bind(this.loadLogs, this), 5)
-    },
-
-    startPoll: function () {
-        this.loadLogs()
-        poll.add(L.bind(this.loadLogs, this), 5)
     },
 })
