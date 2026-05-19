@@ -1,4 +1,5 @@
 'use strict'
+
 'require view'
 'require form'
 'require poll'
@@ -52,10 +53,15 @@ function getEnabled() {
     return uci.get('dnsproxy', 'global', 'enabled') === '1'
 }
 
+// Состояния:
+// 🟢 запущена
+// 🟡 включена, но не запущена — Stopped (enabled)
+// ⚫ выключена — Disabled
+// 🔴 не установлена — выставляется при инициализации отдельно
 function getStatusEmoji(enabled, running) {
-    if (running) return '\uD83D\uDFE2' // 🟢 running
-    if (enabled) return '\uD83D\uDFE1' // 🟡 enabled but stopped
-    return '\uD83D\uDD34' // 🔴 disabled
+    if (running) return '\uD83D\uDFE2' // 🟢
+    if (enabled) return '\uD83D\uDFE1' // 🟡
+    return '\u26AB' // ⚫
 }
 
 function updateStatusUI(running) {
@@ -140,19 +146,40 @@ function makeActionHandler(action) {
     }
 }
 
-// Рендер статус-блока — отдельно от Map, как в PBR
-function renderStatus(initStatus) {
-    var running = getRunning(initStatus)
-    var enabled = getEnabled()
+// apk info dnsproxy возвращает строку вида "dnsproxy-0.73.4-r0" или пустую строку
+function parseVersion(apkOutput) {
+    if (!apkOutput || !apkOutput.trim()) return null // null = не установлен
+    var m = apkOutput.trim().match(/dnsproxy[- ](\S+)/)
+    return m ? m[1] : apkOutput.trim()
+}
 
-    // Поллинг каждые 5 секунд
-    poll.add(function () {
-        return L.resolveDefault(callServiceStatus('dnsproxy'), {}).then(
-            function (status) {
-                updateStatusUI(getRunning(status))
-            },
-        )
-    }, 5)
+// Рендер статус-блока — отдельно от Map, как в PBR
+function renderStatus(initStatus, version) {
+    var notInstalled = version === null
+    var running = notInstalled ? false : getRunning(initStatus)
+    var enabled = notInstalled ? false : getEnabled()
+
+    var initialDot = notInstalled
+        ? '\uD83D\uDD34 ' // 🔴 не установлен
+        : getStatusEmoji(enabled, running) + ' '
+    var initialText = notInstalled
+        ? _('Not installed')
+        : running
+          ? _('Running')
+          : enabled
+            ? _('Stopped (enabled)')
+            : _('Disabled')
+
+    // Поллинг каждые 5 секунд — только если пакет установлен
+    if (!notInstalled) {
+        poll.add(function () {
+            return L.resolveDefault(callServiceStatus('dnsproxy'), {}).then(
+                function (status) {
+                    updateStatusUI(getRunning(status))
+                },
+            )
+        }, 5)
+    }
 
     var gap = '\u00a0\u00a0'
     var longGap = '\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0'
@@ -170,21 +197,22 @@ function renderStatus(initStatus) {
                     style: 'opacity:1 !important',
                 },
                 [
-                    E(
-                        'span',
-                        { id: 'dnsproxy-status-dot' },
-                        getStatusEmoji(enabled, running) + ' ',
-                    ),
-                    E(
-                        'span',
-                        { id: 'dnsproxy-status-txt' },
-                        running
-                            ? _('Running')
-                            : enabled
-                              ? _('Stopped (enabled)')
-                              : _('Disabled'),
-                    ),
+                    E('span', { id: 'dnsproxy-status-dot' }, initialDot),
+                    E('span', { id: 'dnsproxy-status-txt' }, initialText),
                 ],
+            ),
+        ]),
+
+        // Строка: Version
+        E('div', { class: 'cbi-value' }, [
+            E('label', { class: 'cbi-value-title' }, _('Version')),
+            E(
+                'div',
+                {
+                    class: 'cbi-value-field cbi-value-description',
+                    style: 'opacity:1 !important',
+                },
+                version !== null ? version : _('—'),
             ),
         ]),
 
@@ -197,7 +225,7 @@ function renderStatus(initStatus) {
                     {
                         id: 'dnsproxy-btn-start',
                         class: 'btn cbi-button cbi-button-apply',
-                        disabled: !enabled || running || null,
+                        disabled: !enabled || running || notInstalled || null,
                         click: makeActionHandler('start'),
                     },
                     _('Start'),
@@ -208,7 +236,7 @@ function renderStatus(initStatus) {
                     {
                         id: 'dnsproxy-btn-restart',
                         class: 'btn cbi-button cbi-button-apply',
-                        disabled: !running || null,
+                        disabled: !running || notInstalled || null,
                         click: makeActionHandler('restart'),
                     },
                     _('Restart'),
@@ -219,7 +247,7 @@ function renderStatus(initStatus) {
                     {
                         id: 'dnsproxy-btn-stop',
                         class: 'btn cbi-button cbi-button-reset',
-                        disabled: !running || null,
+                        disabled: !running || notInstalled || null,
                         click: makeActionHandler('stop'),
                     },
                     _('Stop'),
@@ -230,7 +258,7 @@ function renderStatus(initStatus) {
                     {
                         id: 'dnsproxy-btn-enable',
                         class: 'btn cbi-button cbi-button-apply',
-                        disabled: enabled || null,
+                        disabled: enabled || notInstalled || null,
                         click: makeActionHandler('enable'),
                     },
                     _('Enable'),
@@ -241,7 +269,7 @@ function renderStatus(initStatus) {
                     {
                         id: 'dnsproxy-btn-disable',
                         class: 'btn cbi-button cbi-button-reset',
-                        disabled: !enabled || null,
+                        disabled: !enabled || notInstalled || null,
                         click: makeActionHandler('disable'),
                     },
                     _('Disable'),
@@ -270,11 +298,13 @@ return view.extend({
         return Promise.all([
             uci.load('dnsproxy'),
             L.resolveDefault(callServiceStatus('dnsproxy'), {}),
+            L.resolveDefault(fs.exec_direct('apk', ['info', 'dnsproxy']), ''),
         ])
     },
 
     render: function (data) {
         var initStatus = data[1]
+        var version = parseVersion(data[2])
 
         var m = new form.JSONMap(
             mapdata,
@@ -288,7 +318,7 @@ return view.extend({
         tabSettings.addSection(m)
 
         return Promise.all([
-            Promise.resolve(renderStatus(initStatus)),
+            Promise.resolve(renderStatus(initStatus, version)),
             m.render(),
         ]).then(function (nodes) {
             return [nodes[0], E('h3', {}, _('Configuration')), nodes[1]]
