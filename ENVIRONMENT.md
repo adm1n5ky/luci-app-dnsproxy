@@ -9,29 +9,25 @@ This file defines the target environment for this repository. All code generatio
 * **Linux Kernel**: `6.12.87`
 
 ## Target Application & Core Stack
-* **Project**: LuCI Web Interface for **AdGuard DNA Proxy** (`https://github.com/AdguardTeam/dnsproxy`)
-* **Configuration Backend**: OpenWrt Unified Configuration Interface (UCI) mapping to `/etc/config/dnsproxy`.
+* **Project**: LuCI Web Interface for **AdGuard DNS Proxy** (`https://github.com`)
+* **Configuration Backend**: OpenWrt Unified Configuration Interface (UCI) mapping strictly to `/etc/config/dnsproxy`.
 * **Service Management**: Controlled via `procd` init scripts using standard JSON state triggers.
 
-## Package Management & File Paths (OpenWrt 25.12+)
-The system strictly uses `apk` (Alpine Package Keeper) and `.adb` package indexes. 
+## Package Management & File Paths (OpenWrt 25.12+ / apk-tools v3)
+The system strictly uses `apk` (v3) instead of `opkg`.
 * **Package Manager**: `apk`
 * **Feed Configurations**: `/etc/apk/repositories.d/distfeeds.list`
-* **Package Database**: `/lib/apk/db/installed`
-* **Constraint**: Never generate scripts using `opkg`. Use `apk update` and `apk add <package>`.
+* **True Package Database**: `/lib/apk/db/installed` (This file exists, is active, and contains all package metadata).
+* **Constraint**: Never generate backend scripts using legacy `opkg`. Use `apk add <package>` for lifecycle tasks.
 
-## LuCI Web UI Development Guidelines (Strict Constraints)
-OpenWrt 25.12 enforces modern UI standards. AI must adhere to the following client-side guidelines:
+## LuCI Web UI Development & Data Fetching Guidelines
+OpenWrt 25.12 enforces modern, strict client-side UI standards. AI must adhere to the following rules:
 
-1. **No Server-Side Lua (Legacy CBI)**: Do NOT generate `.lua` controllers, templates (`.htm`), or CBI maps. They are deprecated and unsupported.
-2. **Pure Client-Side JavaScript**: All views must be written as pure JS modules using the JavaScript LuCI UI API (extending `L.ui.view` or `L.view`) located under `/www/luci-static/resources/view/`.
-3. **Data Communication**: Use JSON-RPC via `ubus` calls (`L.rpc.declare`) or explicit `XHR` calls to exchange data between the browser and the router backend.
-4. **Forms and Mapping**: Use the client-side JavaScript `LuCI.form` API to automatically map `/etc/config/dnsproxy` fields into interactive web components (inputs, dropdowns, lists for bootstrap/upstream DNS servers).
-5. **Directory Structure Requirements**:
-   * Dispatcher/Menu definitions: `/usr/share/luci/menu.d/luci-app-dnsproxy.json` (Strictly JSON, no Lua files here).
-   * Web Views (JS): `/www/luci-static/resources/view/dnsproxy.js`
-   * ACL Permissions: `/usr/share/rpcd/acl.d/luci-app-dnsproxy.json`
-
-## Examples of Permitted Architecture (For AI Reference)
-* To retrieve config or status, declare an RPC method mapping to `ubus call uci get ...` or call a custom `rpcd` script returning a JSON payload.
-* Use strict standard JavaScript (ES6+), handling promises for asynchronous ubus calls (`fs.read()`, `uci.load()`).
+1. **Pure Client-Side JavaScript (ES6+)**: All views must extend `L.ui.view` or `L.view` and reside in `/www/luci-static/resources/view/dnsproxy.js`. No server-side Lua or CBI allowed.
+2. **Menu Definition**: Created via raw JSON at `/usr/share/luci/menu.d/luci-app-dnsproxy.json`.
+3. **ACL Permissions**: Defined via JSON at `/usr/share/rpcd/acl.d/luci-app-dnsproxy.json`.
+4. **How to Fetch Application Version & Status**: 
+   * Do NOT read `/lib/apk/db/installed` directly from JavaScript (blocked by browser/file access boundaries).
+   * Do NOT spawn `apk list` directly via CLI due to standard LuCI ACL restrictions (403 Forbidden).
+   * **Correct Approach**: Use `L.rpc.declare` to fetch runtime data via standard `ubus` calls. To get the `dnsproxy` version, either query an `rpcd` executable wrapper that securely executes `dnsproxy --version` or parses system logs, or use the `fs` ubus module to read targeted runtime state.
+5. **Forms and Mapping**: Use the client-side `LuCI.form` API to automatically map `/etc/config/dnsproxy` parameters (like upstream DNS servers, bootstrap, blocklists) into visual fields.
