@@ -303,7 +303,7 @@ return view.extend({
             uci.load('dnsproxy'),
             L.resolveDefault(callServiceStatus('dnsproxy'), {}),
             L.resolveDefault(
-                fs.exec_direct('apk', ['list', '--installed', 'dnsproxy']),
+                fs.exec_direct('apk', ['list', '-s', 'dnsproxy']),
                 null,
             ),
         ])
