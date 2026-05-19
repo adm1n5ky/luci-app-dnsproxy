@@ -278,7 +278,7 @@ return view.extend({
 
         var m = new form.JSONMap(
             mapdata,
-            _('Configuration'),
+            _(''),
             _(
                 'A simple DNS proxy server that supports all existing DNS protocols including DNS-over-TLS, DNS-over-HTTPS, DNSCrypt, and DNS-over-QUIC. Moreover, it can work as a DNS-over-HTTPS, DNS-over-TLS or DNS-over-QUIC server.',
             ),
@@ -287,11 +287,12 @@ return view.extend({
 
         tabSettings.addSection(m)
 
-        // Возвращаем массив [статус, форма] — как в PBR
         return Promise.all([
             Promise.resolve(renderStatus(initStatus)),
             m.render(),
-        ])
+        ]).then(function (nodes) {
+            return [nodes[0], E('h3', {}, _('Configuration')), nodes[1]]
+        })
     },
 
     handleSave: function (ev) {
