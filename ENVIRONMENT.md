@@ -31,3 +31,10 @@ OpenWrt 25.12 enforces modern, strict client-side UI standards. AI must adhere t
    * Do NOT spawn `apk list` directly via CLI due to standard LuCI ACL restrictions (403 Forbidden).
    * **Correct Approach**: Use `L.rpc.declare` to fetch runtime data via standard `ubus` calls. To get the `dnsproxy` version, either query an `rpcd` executable wrapper that securely executes `dnsproxy --version` or parses system logs, or use the `fs` ubus module to read targeted runtime state.
 5. **Forms and Mapping**: Use the client-side `LuCI.form` API to automatically map `/etc/config/dnsproxy` parameters (like upstream DNS servers, bootstrap, blocklists) into visual fields.
+
+## Repository Directory Structure
+The repository uses a nested `luci-app-dnsproxy` folder for the package root. AI must follow this exact tree when generating file outputs:
+* `luci-app-dnsproxy/usr/share/luci/menu.d/luci-app-dnsproxy.json` — Menu dispatching.
+* `luci-app-dnsproxy/usr/share/rpcd/acl.d/luci-app-dnsproxy.json` — RPC access rights.
+* `luci-app-dnsproxy/www/luci-static/resources/view/dnsproxy/` — Multi-file JS views and components.
+* `luci-app-dnsproxy/www/luci-static/resources/tools/dnsproxy/` — Helper scripts or JS tools.
