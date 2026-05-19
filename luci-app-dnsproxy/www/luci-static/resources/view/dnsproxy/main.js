@@ -163,7 +163,7 @@ function renderStatus(initStatus) {
         // Строка: Service Status
         E('div', { class: 'cbi-value' }, [
             E('label', { class: 'cbi-value-title' }, _('Service Status')),
-            E('div', { class: 'cbi-value-field' }, [
+            E('div', { class: 'cbi-value-field cbi-value-description' style: 'opacity:1 !important' }, [
                 E(
                     'span',
                     { id: 'dnsproxy-status-dot' },
