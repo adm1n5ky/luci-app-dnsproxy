@@ -38,3 +38,64 @@ The repository uses a nested `luci-app-dnsproxy` folder for the package root. AI
 * `luci-app-dnsproxy/usr/share/rpcd/acl.d/luci-app-dnsproxy.json` — RPC access rights.
 * `luci-app-dnsproxy/www/luci-static/resources/view/dnsproxy/` — Multi-file JS views and components.
 * `luci-app-dnsproxy/www/luci-static/resources/tools/dnsproxy/` — Helper scripts or JS tools.
+
+# Official LuCI Modern UI Guidelines & Code Examples
+
+All JavaScript code generated for `luci-app-dnsproxy` must use native client-side LuCI classes. Executing external CLI scripts is strictly forbidden.
+
+## 1. Native File Reading (Reading /lib/apk/db/installed)
+Instead of invoking `apk` via CLI, LuCI uses the native `fs` object via ubus to read files.
+
+```javascript
+import { factory } from 'LuCI.rpc';
+import { Network } from 'LuCI.fs'; // built-in filesystem module
+
+// Example: How to read the package database directly in JavaScript safely
+fs.read('/lib/apk/db/installed').then(function(content) {
+    if (content && content.includes('pkg: dnsproxy')) {
+        // Parse metadata inside the browser without CLI tools
+    }
+});
+```
+
+## 2. Dynamic Version Fetching (via System Executable Call)
+If you need to fetch the version of `/usr/bin/dnsproxy` using `--version`, use standard `fs.exec`:
+
+```javascript
+import { exec } from 'LuCI.fs';
+
+// Official approach to call binaries securely from the UI via ubus system permissions
+return fs.exec('/usr/bin/dnsproxy', ['--version']).then(function(result) {
+    if (result && result.code === 0) {
+        return result.stdout.trim(); // Returns binary version output safely
+    }
+    return 'Unknown';
+});
+```
+
+## 3. UCI Form Mapping (Mapping /etc/config/dnsproxy)
+Use client-rendered forms (`LuCI.form`) to auto-map configurations. Do NOT manually parse files.
+
+```javascript
+import { Map, Section, Value, DynamicList } from 'LuCI.form';
+
+// Official form mapping structure
+return L.view.extend({
+    render: function() {
+        var m, s, o;
+        m = new Map('dnsproxy', _('DNS Proxy Configuration'));
+        
+        s = m.section(Section.Typed, 'dnsproxy', _('General Settings'));
+        s.anonymous = true;
+
+        o = s.option(Value, 'listen_addr', _('Listen Address'));
+        o.datatype = 'ipaddr';
+        o.placeholder = '0.0.0.0';
+
+        o = s.option(DynamicList, 'upstream', _('Upstream DNS Servers'));
+        o.datatype = 'string';
+
+        return m.render();
+    }
+});
+```
