@@ -16,9 +16,28 @@ var LEVEL_COLORS = {
     FATAL: '#6f42c1',
 }
 
+// function fetchLog() {
+//     return L.resolveDefault(
+//         fs.exec_direct('logread', ['-l', String(LOG_LINES)]),
+//         '',
+//     ).then(function (raw) {
+//         if (!raw) return ''
+//         return raw
+//             .split('\n')
+//             .filter(function (line) {
+//                 return line.indexOf('dnsproxy') !== -1
+//             })
+//             .join('\n')
+//     })
+// }
+
 function fetchLog() {
     return L.resolveDefault(
-        fs.exec_direct('logread', ['-l', String(LOG_LINES)]),
+        // Вызываем официальный системный wrapper вместо logread
+        fs.exec_direct('/usr/libexec/syslog-wrapper', [
+            '-l',
+            String(LOG_LINES),
+        ]),
         '',
     ).then(function (raw) {
         if (!raw) return ''

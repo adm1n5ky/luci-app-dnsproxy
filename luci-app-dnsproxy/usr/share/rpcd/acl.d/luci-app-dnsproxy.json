@@ -26,12 +26,5 @@
             },
             "uci": ["dnsproxy"]
         }
-    },
-    "luci": {
-        "access": {
-            "exec": {
-                "/sbin/logread": ["exec"]
-            }
-        }
     }
 }
