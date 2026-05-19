@@ -99,3 +99,13 @@ return L.view.extend({
     }
 });
 ```
+
+## LuCI Script Execution & Logs Policy (OpenWrt 25.12 Standard)
+When generating or modifying JavaScript views that require executing system commands or reading logs, AI must follow these strict execution rules to avoid ACL 403 Forbidden errors:
+
+1. **No Direct Logread**: Never use `fs.exec_direct('logread')` or `fs.exec('/sbin/logread')`. Direct calls to `logread` via CGI-IO are blocked by modern OpenWrt ACL policies.
+2. **Official Syslog Wrapper**: To fetch system logs, always invoke the official OpenWrt log wrapper helper script:
+   * **Correct Path**: `/usr/libexec/syslog-wrapper`
+   * **Usage Example**: `fs.exec_direct('/usr/libexec/syslog-wrapper', ['-l', String(LOG_LINES)])`
+   * *Note*: This script has native system execution rights pre-granted in `luci-mod-status`, so it bypasses custom plugin ACL restrictions.
+3. **Binary Execution Permissions**: If the UI needs to execute the `/usr/bin/dnsproxy` binary directly (e.g., to fetch version details using `--version`), AI must use `fs.exec('/usr/bin/dnsproxy', ['--version'])` and ensure that the binary path is explicitly whitelisted in the application's ACL definition file under the execution context if required.
