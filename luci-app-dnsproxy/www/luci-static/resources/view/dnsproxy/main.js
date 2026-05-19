@@ -146,15 +146,22 @@ function makeActionHandler(action) {
     }
 }
 
-// apk info dnsproxy возвращает строку вида "dnsproxy-0.73.4-r0" или пустую строку
-function parseVersion(apkOutput) {
-    if (!apkOutput || !apkOutput.trim()) return null // null = не установлен
-
-    // Ожидаем формат: dnsproxy-0.81.0-r1 x86_64 ... [installed]
-    // Ищем имя пакета, тире и версию до первого пробела
-    var m = apkOutput.trim().match(/^dnsproxy-([^\s]+)/)
-
-    return m ? m[1].trim() : null
+// Читаем версию из APK database — обычное чтение файла, без exec, без ACL-проблем.
+// Формат блока в /lib/apk/db/installed:
+//   P:dnsproxy
+//   V:0.73.4-r0
+//   ...
+// Блоки разделены пустой строкой.
+function parseVersion(apkDb) {
+    if (!apkDb) return null
+    var blocks = apkDb.split('\n\n')
+    for (var i = 0; i < blocks.length; i++) {
+        if (/^P:dnsproxy$/m.test(blocks[i])) {
+            var m = blocks[i].match(/^V:(.+)$/m)
+            return m ? m[1].trim() : null
+        }
+    }
+    return null // пакет не найден в базе — не установлен
 }
 
 // Рендер статус-блока — отдельно от Map, как в PBR
@@ -216,7 +223,7 @@ function renderStatus(initStatus, version) {
                     class: 'cbi-value-field cbi-value-description',
                     style: 'opacity:1 !important',
                 },
-                version !== null ? version : _('—'),
+                version !== null ? version : '\u2014',
             ),
         ]),
 
@@ -302,7 +309,8 @@ return view.extend({
         return Promise.all([
             uci.load('dnsproxy'),
             L.resolveDefault(callServiceStatus('dnsproxy'), {}),
-            L.resolveDefault(fs.exec_direct('dnsproxy', ['--version']), null),
+            // Читаем APK db как обычный файл — не нужен exec, не нужны доп. ACL
+            L.resolveDefault(fs.read('/lib/apk/db/installed'), ''),
         ])
     },
 
