@@ -72,7 +72,7 @@ function renderLines(text, levelFilter) {
             'width:100%',
             'font-family:"JetBrains Mono",Consolas,Monaco,monospace',
             'font-size:13px',
-            'line-height:1.2',
+            'line-height:13px',
             'white-space:pre-wrap',
             'word-break:break-all',
             'background:#0d1117',
