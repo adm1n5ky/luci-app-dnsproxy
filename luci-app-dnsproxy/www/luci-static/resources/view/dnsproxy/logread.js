@@ -71,8 +71,8 @@ function renderLines(text, levelFilter) {
         style: [
             'width:100%',
             'font-family:"JetBrains Mono",Consolas,Monaco,monospace',
-            'font-size:12px',
-            'line-height:1.4',
+            'font-size:13px',
+            'line-height:1.2',
             'white-space:pre-wrap',
             'word-break:break-all',
             'background:#0d1117',
@@ -80,7 +80,7 @@ function renderLines(text, levelFilter) {
             'padding:12px',
             'border-radius:6px',
             'border:1px solid #30363d',
-            'height:500px',
+            'height:600px',
             'overflow-y:auto',
             'box-sizing:border-box',
         ].join(';'),
@@ -251,7 +251,7 @@ return view.extend({
         }, 100)
 
         return E('div', { class: 'cbi-map' }, [
-            E('h3', {}, _('DNS Proxy — System Log')),
+            E('h3', {}, _('DNS Proxy: System Log')),
             E(
                 'div',
                 { class: 'cbi-map-descr' },
