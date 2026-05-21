@@ -3,7 +3,7 @@
 
 return view.extend({
     render: function () {
-        return E('div', { class: 'cbi-section' }, [
+        var help_content = [
             E('h3', {}, _('DNS Proxy - Help & Documentation')),
             E(
                 'p',
@@ -12,14 +12,19 @@ return view.extend({
                     'A powerful DNS proxy with support for modern encrypted DNS protocols and advanced filtering capabilities.',
                 ),
             ),
-            E('p', { class: 'protocols-badge' }, [
-                E('span', { class: 'badge' }, 'Plain DNS'),
-                E('span', { class: 'badge badge-info' }, 'DoT'),
-                E('span', { class: 'badge badge-success' }, 'DoH'),
-                E('span', { class: 'badge badge-warning' }, 'DoQ'),
-                E('span', { class: 'badge badge-danger' }, 'DNSCrypt'),
+
+            E('div', { class: 'alert alert-info' }, [
+                E('p', {}, _('Supported Protocols:')),
+                E('div', { style: 'margin-top:5px;' }, [
+                    E('span', { class: 'badge' }, 'Plain DNS'),
+                    E('span', { class: 'badge badge-info' }, 'DoT'),
+                    E('span', { class: 'badge badge-success' }, 'DoH'),
+                    E('span', { class: 'badge badge-warning' }, 'DoQ'),
+                    E('span', { class: 'badge badge-danger' }, 'DNSCrypt'),
+                ]),
             ]),
-            E('p', {}, [
+
+            E('div', { style: 'margin-bottom: 1em;' }, [
                 E(
                     'a',
                     {
@@ -43,6 +48,7 @@ return view.extend({
 
             E('hr'),
 
+            // --- Upstream Server URL Formats ---
             E('h4', {}, '🌐 ' + _('Upstream Server URL Formats')),
             E(
                 'p',
@@ -52,149 +58,245 @@ return view.extend({
                 ),
             ),
             E('table', { class: 'table' }, [
-                E('tr', { class: 'row-header' }, [
-                    E('th', {}, _('URL Format')),
-                    E('th', {}, _('Description')),
-                    E('th', {}, _('Example')),
+                E('tr', { class: 'tr table-titles' }, [
+                    E('th', { class: 'th' }, _('URL Format')),
+                    E('th', { class: 'th' }, _('Description')),
+                    E('th', { class: 'th' }, _('Example / Notes')),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, '8.8.8.8:53')),
-                    E('td', {}, _('Plain DNS (UDP/TCP auto)')),
-                    E('td', {}, E('strong', {}, 'Default, simplest')),
-                ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'tcp://1.1.1.1')),
-                    E('td', {}, _('Plain DNS over TCP only')),
-                    E('td', {}, _('Forced TCP')),
-                ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'tls://dns.adguard.com')),
-                    E('td', {}, _('DNS-over-TLS (DoT)')),
-                    E('td', {}, _('Encrypted, port 853')),
-                ]),
-                E('tr', {}, [
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('code', {}, '8.8.8.8:53')),
+                    E('td', { class: 'td' }, _('Plain DNS (UDP/TCP auto)')),
                     E(
                         'td',
-                        {},
+                        { class: 'td' },
+                        E('em', {}, _('Default, simplest')),
+                    ),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('code', {}, 'tcp://1.1.1.1')),
+                    E('td', { class: 'td' }, _('Plain DNS over TCP only')),
+                    E('td', { class: 'td' }, _('Forced TCP connection')),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, 'tls://dns.adguard.com'),
+                    ),
+                    E('td', { class: 'td' }, _('DNS-over-TLS (DoT)')),
+                    E('td', { class: 'td' }, _('Encrypted, default port 853')),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E(
+                        'td',
+                        { class: 'td' },
                         E('code', {}, 'https://dns.adguard.com/dns-query'),
                     ),
-                    E('td', {}, _('DNS-over-HTTPS (DoH)')),
-                    E('td', {}, _('Encrypted, port 443')),
+                    E('td', { class: 'td' }, _('DNS-over-HTTPS (DoH)')),
+                    E('td', { class: 'td' }, _('Encrypted, default port 443')),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'quic://dns.adguard.com')),
-                    E('td', {}, _('DNS-over-QUIC (DoQ)')),
-                    E('td', {}, _('Fastest encrypted')),
+                E('tr', { class: 'tr' }, [
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, 'quic://dns.adguard.com'),
+                    ),
+                    E('td', { class: 'td' }, _('DNS-over-QUIC (DoQ)')),
+                    E('td', { class: 'td' }, _('Fastest encrypted protocol')),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'h3://dns.google/dns-query')),
-                    E('td', {}, _('DoH with HTTP/3 forced')),
-                    E('td', {}, _('HTTP/3 only')),
-                ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'sdns://...')),
-                    E('td', {}, _('DNSCrypt / DNS Stamp')),
-                    E('td', {}, _('Full stamp string')),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('code', {}, 'sdns://...')),
+                    E('td', { class: 'td' }, _('DNSCrypt / DNS Stamp')),
+                    E('td', { class: 'td' }, _('Full stamp string required')),
                 ]),
             ]),
 
+            // --- Domain-Specific Upstreams ---
             E('h4', {}, '🎯 ' + _('Domain-Specific Upstreams')),
             E(
                 'p',
                 {},
                 _(
-                    'Route queries for specific domains to different DNS servers:',
+                    'Route queries for specific domains to different DNS servers using the syntax: ',
                 ),
-            ),
-            E('div', { class: 'alert alert-info' }, [
-                E('strong', {}, _('Syntax') + ': '),
                 E('code', {}, '[/domain/]upstream'),
-            ]),
+            ),
             E('table', { class: 'table' }, [
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, '[/local/]192.168.1.1')),
-                    E('td', {}, _('All *.local domains → local DNS server')),
+                E('tr', { class: 'tr table-titles' }, [
+                    E('th', { class: 'th' }, _('Pattern')),
+                    E('th', { class: 'th' }, _('Behavior')),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, '[/corp.example.com/]10.0.0.1')),
-                    E('td', {}, _('Subdomain → internal corporate DNS')),
-                ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, '[//]1.1.1.1')),
-                    E('td', {}, _('Unqualified (single-label) names')),
-                ]),
-                E('tr', {}, [
+                E('tr', { class: 'tr' }, [
                     E(
                         'td',
-                        {},
+                        { class: 'td' },
+                        E('code', {}, '[/local/]192.168.1.1'),
+                    ),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('All *.local domains → local DNS server'),
+                    ),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, '[/corp.example.com/]10.0.0.1'),
+                    ),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('Subdomain → internal corporate DNS'),
+                    ),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('code', {}, '[//]1.1.1.1')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('Unqualified (single-label) names'),
+                    ),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E(
+                        'td',
+                        { class: 'td' },
                         E('code', {}, '[/example.com/]tls://dns.example.com'),
                     ),
-                    E('td', {}, _('Specific domain with encrypted DNS')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('Specific domain with encrypted DNS'),
+                    ),
                 ]),
             ]),
 
+            // --- Upstream Modes ---
             E('h4', {}, '⚙️ ' + _('Upstream Modes')),
-            E('p', {}, _('Control how multiple upstream servers are used:')),
+            E(
+                'p',
+                {},
+                _('Control how multiple upstream servers are utilized:'),
+            ),
             E('table', { class: 'table' }, [
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'load_balance')),
-                    E('td', {}, _('Distribute queries across all upstreams')),
+                E('tr', { class: 'tr table-titles' }, [
+                    E('th', { class: 'th' }, _('Mode')),
+                    E('th', { class: 'th' }, _('Description')),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'parallel')),
-                    E('td', {}, _('Query all upstreams, use fastest response')),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('code', {}, 'load_balance')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('Distribute queries across all upstreams evenly'),
+                    ),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('code', {}, 'fastest_addr')),
-                    E('td', {}, _('Ping upstreams, use fastest IP')),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('code', {}, 'parallel')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _(
+                            'Query all upstreams simultaneously, use fastest response',
+                        ),
+                    ),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('code', {}, 'fastest_addr')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _(
+                            'Ping upstreams periodically, use the IP with lowest latency',
+                        ),
+                    ),
                 ]),
             ]),
 
+            // --- Popular Public DNS ---
             E('h4', {}, '🏢 ' + _('Popular Public DNS Servers')),
             E('p', {}, _('Ready-to-use public DNS resolvers:')),
             E('table', { class: 'table' }, [
-                E('tr', { class: 'row-header' }, [
-                    E('th', {}, _('Provider')),
-                    E('th', {}, _('DoT')),
-                    E('th', {}, _('DoH')),
-                    E('th', {}, _('Notes')),
+                E('tr', { class: 'tr table-titles' }, [
+                    E('th', { class: 'th' }, _('Provider')),
+                    E('th', { class: 'th' }, _('DoT Upstream')),
+                    E('th', { class: 'th' }, _('DoH Upstream')),
+                    E('th', { class: 'th' }, _('Notes')),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('strong', {}, 'Cloudflare')),
-                    E('td', {}, E('code', {}, 'tls://1.1.1.1')),
-                    E('td', {}, E('code', {}, 'https://1.1.1.1/dns-query')),
-                    E('td', {}, _('Fast, privacy-focused')),
-                ]),
-                E('tr', {}, [
-                    E('td', {}, E('strong', {}, 'Google')),
-                    E('td', {}, E('code', {}, 'tls://8.8.8.8')),
-                    E('td', {}, E('code', {}, 'https://8.8.8.8/dns-query')),
-                    E('td', {}, _('Reliable, global')),
-                ]),
-                E('tr', {}, [
-                    E('td', {}, E('strong', {}, 'Quad9')),
-                    E('td', {}, E('code', {}, 'tls://9.9.9.9')),
-                    E('td', {}, E('code', {}, 'https://9.9.9.9/dns-query')),
-                    E('td', {}, _('Security, malware blocking')),
-                ]),
-                E('tr', {}, [
-                    E('td', {}, E('strong', {}, 'AdGuard')),
-                    E('td', {}, E('code', {}, 'tls://dns.adguard.com')),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('strong', {}, 'Cloudflare')),
+                    E('td', { class: 'td' }, E('code', {}, 'tls://1.1.1.1')),
                     E(
                         'td',
-                        {},
+                        { class: 'td' },
+                        E('code', {}, 'https://1.1.1.1/dns-query'),
+                    ),
+                    E('td', { class: 'td' }, _('Fast, privacy-focused')),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('strong', {}, 'Google')),
+                    E('td', { class: 'td' }, E('code', {}, 'tls://8.8.8.8')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, 'https://8.8.8.8/dns-query'),
+                    ),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('Reliable, global infrastructure'),
+                    ),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('strong', {}, 'Quad9')),
+                    E('td', { class: 'td' }, E('code', {}, 'tls://9.9.9.9')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, 'https://9.9.9.9/dns-query'),
+                    ),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('Security focused, malware blocking'),
+                    ),
+                ]),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('strong', {}, 'AdGuard')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, 'tls://dns.adguard.com'),
+                    ),
+                    E(
+                        'td',
+                        { class: 'td' },
                         E('code', {}, 'https://dns.adguard.com/dns-query'),
                     ),
-                    E('td', {}, _('Ad-blocking built-in')),
+                    E('td', { class: 'td' }, _('Built-in ad-blocking filters')),
                 ]),
-                E('tr', {}, [
-                    E('td', {}, E('strong', {}, 'NextDNS')),
-                    E('td', {}, E('code', {}, 'tls://<id>.dns.nextdns.io')),
-                    E('td', {}, E('code', {}, 'https://dns.nextdns.io/<id>')),
-                    E('td', {}, _('Customizable, requires ID')),
+                E('tr', { class: 'tr' }, [
+                    E('td', { class: 'td' }, E('strong', {}, 'NextDNS')),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, 'tls://<id>.dns.nextdns.io'),
+                    ),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        E('code', {}, 'https://dns.nextdns.io/<id>'),
+                    ),
+                    E(
+                        'td',
+                        { class: 'td' },
+                        _('Customizable, requires Account ID'),
+                    ),
                 ]),
             ]),
 
+            // --- Security & Features ---
             E('h4', {}, '🔒 ' + _('Security & Privacy Features')),
             E('ul', {}, [
                 E(
@@ -264,7 +366,11 @@ return view.extend({
                     {},
                     _('Verify upstream connectivity with dig/nslookup'),
                 ),
-                E('li', {}, _('Ensure correct system time for TLS/HTTPS')),
+                E(
+                    'li',
+                    {},
+                    _('Ensure correct system time for TLS/HTTPS validation'),
+                ),
                 E(
                     'li',
                     {},
@@ -276,13 +382,15 @@ return view.extend({
             E('div', { class: 'alert alert-success' }, [
                 E('strong', {}, '💡 Tip: '),
                 _(
-                    'Use at least two upstream servers for redundancy. Mix different providers for better reliability!',
+                    'Use at least two upstream servers from different providers for better reliability!',
                 ),
             ]),
-        ])
+        ]
+
+        return E('div', { class: 'cbi-section' }, help_content)
     },
 
-    handleSave: null,
     handleSaveApply: null,
+    handleSave: null,
     handleReset: null,
 })
