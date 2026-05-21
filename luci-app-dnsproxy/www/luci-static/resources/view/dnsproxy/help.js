@@ -1,8 +1,14 @@
 'use strict'
 'use ui'
 
-// Явно импортируем необходимые модули LuCI
-return L.Class.extend({
+// Подключаем системные классы LuCI
+'require view'
+'require form'
+'require uci'
+'require ubus'
+
+// Расширяем класс view, как того требует LuCI
+return view.extend({
     // Метод load выполняется ДО отрисовки страницы. Собираем данные.
     load: function () {
         return Promise.all([
@@ -28,7 +34,7 @@ return L.Class.extend({
             serviceData.dnsproxy.instances
         ) {
             let instances = serviceData.dnsproxy.instances
-            // Проверяем первый попавшийся инстанс (обычно instance1)
+            // Проверяем инстансы (обычно instance1)
             for (let name in instances) {
                 if (instances[name].running === true) {
                     isRunning = true
