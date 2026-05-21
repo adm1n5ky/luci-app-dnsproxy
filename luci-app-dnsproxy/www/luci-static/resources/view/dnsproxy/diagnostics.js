@@ -6,8 +6,6 @@
 'require poll'
 'require rpc'
 
-// ── RPC ───────────────────────────────────────────────────────────────────────
-
 var callGetProcessList = rpc.declare({
     object: 'luci',
     method: 'getProcessList',
@@ -33,8 +31,6 @@ function parseIPv6(hex) {
     var groups = []
     for (var i = 0; i < 16; i += 2)
         groups.push(((bytes[i] << 8) | bytes[i + 1]).toString(16))
-
-    // Compress longest run of zero groups
     var best = { start: -1, len: 0 },
         cur = { start: -1, len: 0 }
     for (var i = 0; i < groups.length; i++) {
@@ -58,56 +54,66 @@ function parseIPv6(hex) {
     return groups.join(':')
 }
 
-/**
- * Parse /proc/net/{tcp,udp,tcp6,udp6}.
- * Filters rows by uid (column index 7) to get only dnsproxy sockets.
- * TCP LISTEN = state 0A, UDP UNCONN = state 07.
- */
 function parseProcNet(content, isV6, isUDP, uid) {
     if (!content) return []
     var rows = []
     content.split('\n').forEach(function (line) {
         var cols = line.trim().split(/\s+/)
         if (cols.length < 10) return
-        var state = cols[3]
-        var rowUid = cols[7]
-        if (rowUid !== uid) return
-        if (!isUDP && state !== '0A') return // TCP: LISTEN only
-        if (isUDP && state !== '07') return // UDP: UNCONN only
-
+        if (cols[7] !== uid) return
+        if (!isUDP && cols[3] !== '0A') return
+        if (isUDP && cols[3] !== '07') return
         var parts = cols[1].split(':')
-        var addr = isV6 ? parseIPv6(parts[0]) : parseIPv4(parts[0])
-        var port = parseInt(parts[1], 16)
-        rows.push({ addr: addr, port: port })
+        rows.push({
+            addr: isV6 ? parseIPv6(parts[0]) : parseIPv4(parts[0]),
+            port: parseInt(parts[1], 16),
+        })
     })
     return rows
 }
 
-// ── Process info from getProcessList ─────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Find the real dnsproxy process (USER === 'dnsproxy', not the ujail wrapper).
- * Returns { pid, uid, command, ports[], listens[] } or null.
+ * Parse /etc/passwd to get uid for a given username.
+ * Line format: username:x:uid:gid:...
+ */
+function uidFromPasswd(passwd, username) {
+    if (!passwd) return null
+    var m = passwd.match(new RegExp('^' + username + ':[^:]+:([0-9]+):', 'm'))
+    return m ? m[1] : null
+}
+
+/**
+ * Find the real dnsproxy process from getProcessList.
+ * Matches USER === 'dnsproxy' and COMMAND starting with '/' (not ujail wrapper).
  */
 function findDnsproxyProc(procs) {
+    if (!procs || !procs.length) return null
     var found = null
-    ;(procs || []).forEach(function (p) {
+    procs.forEach(function (p) {
+        if (found) return
         if (
             p.USER === 'dnsproxy' &&
-            p.COMMAND &&
-            p.COMMAND.indexOf('/usr/bin/dnsproxy') === 0
-        )
+            typeof p.COMMAND === 'string' &&
+            p.COMMAND.charAt(0) === '/'
+        ) {
             found = p
+        }
     })
     if (!found) return null
 
     var cmd = found.COMMAND
-    var ports = (cmd.match(/--port\s+(\d+)/g) || []).map(function (s) {
-        return s.split(/\s+/)[1]
-    })
-    var listens = (cmd.match(/--listen\s+(\S+)/g) || []).map(function (s) {
-        return s.split(/\s+/)[1]
-    })
+    var ports = [],
+        listens = [],
+        m,
+        re
+
+    re = /--port\s+(\d+)/g
+    while ((m = re.exec(cmd)) !== null) ports.push(m[1])
+
+    re = /--listen\s+(\S+)/g
+    while ((m = re.exec(cmd)) !== null) listens.push(m[1])
 
     return {
         pid: found.PID,
@@ -117,166 +123,148 @@ function findDnsproxyProc(procs) {
     }
 }
 
-// ── Fetch all port data ───────────────────────────────────────────────────────
+// ── Data fetch ────────────────────────────────────────────────────────────────
 
-var DNSPROXY_UID = '411' // uid of system user 'dnsproxy' on OpenWrt
-
-function fetchPortData() {
+function fetchAll() {
     return Promise.all([
         L.resolveDefault(callGetProcessList(), []),
+        L.resolveDefault(fs.read('/etc/passwd'), ''),
         L.resolveDefault(fs.read('/proc/net/tcp'), ''),
         L.resolveDefault(fs.read('/proc/net/udp'), ''),
         L.resolveDefault(fs.read('/proc/net/tcp6'), ''),
         L.resolveDefault(fs.read('/proc/net/udp6'), ''),
-    ]).then(function (results) {
-        var procs = results[0]
+    ]).then(function (r) {
+        var procs = r[0]
+        var passwd = r[1]
         var proc = findDnsproxyProc(procs)
-
+        var uid = uidFromPasswd(passwd, 'dnsproxy')
         var entries = []
-        ;[
-            { content: results[1], isV6: false, isUDP: false, proto: 'TCP' },
-            { content: results[2], isV6: false, isUDP: true, proto: 'UDP' },
-            { content: results[3], isV6: true, isUDP: false, proto: 'TCP6' },
-            { content: results[4], isV6: true, isUDP: true, proto: 'UDP6' },
-        ].forEach(function (src) {
-            parseProcNet(
-                src.content,
-                src.isV6,
-                src.isUDP,
-                DNSPROXY_UID,
-            ).forEach(function (r) {
-                entries.push({ proto: src.proto, addr: r.addr, port: r.port })
+
+        if (uid) {
+            ;[
+                { content: r[2], isV6: false, isUDP: false, proto: 'TCP' },
+                { content: r[3], isV6: false, isUDP: true, proto: 'UDP' },
+                { content: r[4], isV6: true, isUDP: false, proto: 'TCP6' },
+                { content: r[5], isV6: true, isUDP: true, proto: 'UDP6' },
+            ].forEach(function (src) {
+                parseProcNet(src.content, src.isV6, src.isUDP, uid).forEach(
+                    function (row) {
+                        entries.push({
+                            proto: src.proto,
+                            addr: row.addr,
+                            port: row.port,
+                        })
+                    },
+                )
             })
-        })
+            entries.sort(function (a, b) {
+                return a.port !== b.port
+                    ? a.port - b.port
+                    : a.proto.localeCompare(b.proto)
+            })
+        }
 
-        // Sort by port, then proto
-        entries.sort(function (a, b) {
-            return a.port !== b.port
-                ? a.port - b.port
-                : a.proto.localeCompare(b.proto)
-        })
-
-        return { proc: proc, entries: entries }
+        return { proc: proc, uid: uid, entries: entries }
     })
 }
 
-// ── DOM builders ─────────────────────────────────────────────────────────────
+// ── DOM ───────────────────────────────────────────────────────────────────────
 
-function buildPortsTable(data) {
+function buildStatusBlock(data) {
     var proc = data.proc
+    var uid = data.uid
     var entries = data.entries
 
-    var children = []
+    var nodes = []
 
-    // ── Process info card ──
-    if (proc) {
-        children.push(
+    // ── Process info ──────────────────────────────────────────────────────
+    if (!proc) {
+        nodes.push(
             E(
-                'div',
-                {
-                    style: 'background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;padding:8px 12px;margin-bottom:12px;font-size:13px',
-                },
-                [
-                    E('div', { style: 'margin-bottom:4px' }, [
-                        E('strong', {}, 'PID: '),
-                        E('code', {}, proc.pid),
-                        E('span', { style: 'margin-left:16px' }, [
-                            E('strong', {}, _('Ports') + ': '),
-                            E('code', {}, proc.ports.join(', ')),
-                        ]),
-                        E('span', { style: 'margin-left:16px' }, [
-                            E('strong', {}, _('Listen addresses') + ': '),
-                            E('code', {}, proc.listens.join(', ')),
-                        ]),
-                    ]),
-                    E('div', { style: 'color:#6c757d;word-break:break-all' }, [
-                        E('strong', {}, _('Command') + ': '),
-                        E('code', { style: 'font-size:11px' }, proc.command),
-                    ]),
-                ],
-            ),
-        )
-    } else {
-        children.push(
-            E(
-                'div',
-                {
-                    style: 'color:#dc3545;padding:6px 0;font-style:italic',
-                },
+                'p',
+                { class: 'alert-message warning' },
                 _('dnsproxy process not found — service may be stopped.'),
             ),
         )
-    }
-
-    // ── Sockets table ──
-    if (entries.length) {
-        children.push(
-            E(
-                'table',
-                { class: 'table', style: 'margin-top:8px' },
+    } else {
+        var procTable = E('table', { class: 'table' }, [
+            E('tr', { class: 'tr table-titles' }, [
+                E('th', { class: 'th', style: 'width:10em' }, _('Field')),
+                E('th', { class: 'th' }, _('Value')),
+            ]),
+        ])
+        cbi_update_table(
+            procTable,
+            [
+                [_('PID'), E('code', {}, proc.pid)],
+                [_('UID'), E('code', {}, uid || '?')],
+                [_('Listen ports'), E('code', {}, proc.ports.join(', '))],
+                [_('Listen addresses'), E('code', {}, proc.listens.join(', '))],
                 [
-                    E('tr', { class: 'row-header' }, [
-                        E('th', { style: 'width:6em' }, _('Protocol')),
-                        E('th', {}, _('Local Address')),
-                        E(
-                            'th',
-                            { style: 'width:5em;text-align:right' },
-                            _('Port'),
-                        ),
-                    ]),
-                ].concat(
-                    entries.map(function (e) {
-                        var display =
-                            e.addr.indexOf(':') >= 0
-                                ? '[' + e.addr + ']'
-                                : e.addr
-                        return E('tr', {}, [
-                            E('td', {}, E('code', {}, e.proto)),
-                            E('td', {}, E('code', {}, display)),
-                            E(
-                                'td',
-                                { style: 'text-align:right' },
-                                E('code', {}, String(e.port)),
-                            ),
-                        ])
-                    }),
-                ),
-            ),
+                    _('Command'),
+                    E(
+                        'code',
+                        {
+                            style: 'font-size:11px;word-break:break-all;white-space:normal',
+                        },
+                        proc.command,
+                    ),
+                ],
+            ],
+            E('em', {}, _('No data.')),
         )
-    } else if (proc) {
-        children.push(
-            E(
-                'div',
-                {
-                    style: 'color:#6c757d;font-style:italic;margin-top:8px',
-                },
-                _('No listening sockets found for uid %s.').format(
-                    DNSPROXY_UID,
-                ),
-            ),
-        )
+
+        nodes.push(E('h3', {}, _('Process')))
+        nodes.push(procTable)
     }
 
-    return E('div', { id: 'dnsproxy-ports-inner' }, children)
+    // ── Sockets ───────────────────────────────────────────────────────────
+    var sockTable = E('table', { class: 'table' }, [
+        E('tr', { class: 'tr table-titles' }, [
+            E('th', { class: 'th', style: 'width:6em' }, _('Protocol')),
+            E('th', { class: 'th' }, _('Local Address')),
+            E('th', { class: 'th', style: 'width:5em' }, _('Port')),
+        ]),
+    ])
+    cbi_update_table(
+        sockTable,
+        entries.map(function (e) {
+            var display = e.addr.indexOf(':') >= 0 ? '[' + e.addr + ']' : e.addr
+            return [
+                E('code', {}, e.proto),
+                E('code', {}, display),
+                E('code', {}, String(e.port)),
+            ]
+        }),
+        E(
+            'em',
+            {},
+            uid
+                ? _('No listening sockets found for uid %s.').format(uid)
+                : _('Could not determine dnsproxy uid from /etc/passwd.'),
+        ),
+    )
+
+    nodes.push(E('h3', { style: 'margin-top:1em' }, _('Active Sockets')))
+    nodes.push(sockTable)
+
+    return E('div', { id: 'dnsproxy-status-block' }, nodes)
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────
 
 return view.extend({
     load: function () {
-        return Promise.all([uci.load('dnsproxy'), fetchPortData()])
+        return Promise.all([uci.load('dnsproxy'), fetchAll()])
     },
 
-    // Read first listen port from UCI — fallback if process is stopped
-    _getListenPort: function () {
-        var ports = uci.get('dnsproxy', 'global', 'listen_port')
-        var port = Array.isArray(ports) ? ports[0] : ports
-        return port && /^\d+$/.test(String(port).trim())
-            ? String(port).trim()
-            : '53'
+    _getUciPort: function () {
+        var p = uci.get('dnsproxy', 'global', 'listen_port')
+        p = Array.isArray(p) ? p[0] : p
+        return p && /^\d+$/.test(String(p).trim()) ? String(p).trim() : '53'
     },
 
-    // ── command runner ─────────────────────────────────────────────────────
+    // ── Commands ──────────────────────────────────────────────────────────
 
     handleCommand: function (exec, args) {
         var buttons = document.querySelectorAll('.diag-action > .cbi-button')
@@ -305,9 +293,8 @@ return view.extend({
     handleDig: function () {
         var host = document.getElementById('dnsproxy-diag-host').value.trim()
         if (!host) return
-        // Use real port from running process, fall back to UCI
-        var portEl = document.getElementById('dnsproxy-active-port')
-        var port = (portEl && portEl.textContent) || this._getListenPort()
+        var portEl = document.getElementById('dnsproxy-live-port')
+        var port = (portEl && portEl.textContent.trim()) || this._getUciPort()
         return this.handleCommand('nslookup', [host, '127.0.0.1:' + port])
     },
 
@@ -332,52 +319,55 @@ return view.extend({
         ])
     },
 
-    // ── ports refresh ──────────────────────────────────────────────────────
+    // ── Poll ──────────────────────────────────────────────────────────────
 
-    _refreshPorts: function () {
-        return fetchPortData().then(function (data) {
-            var container = document.getElementById('dnsproxy-ports-inner')
-            if (!container) return
-            var newEl = buildPortsTable(data)
-            container.parentNode.replaceChild(newEl, container)
+    _refresh: function () {
+        return fetchAll().then(function (data) {
+            var old = document.getElementById('dnsproxy-status-block')
+            if (!old) return
+            old.parentNode.replaceChild(buildStatusBlock(data), old)
+            // Sync live port label
+            if (data.proc) {
+                var el = document.getElementById('dnsproxy-live-port')
+                if (el) el.textContent = data.proc.ports[0]
+            }
         })
     },
 
-    // ── render ─────────────────────────────────────────────────────────────
+    // ── Render ────────────────────────────────────────────────────────────
 
-    render: function (data) {
+    render: function (loaded) {
         var self = this
-        var portData = data[1]
-        var uciPort = self._getListenPort()
-        var livePort = portData.proc ? portData.proc.ports[0] : uciPort
+        var data = loaded[1]
+        var livePort = (data.proc && data.proc.ports[0]) || self._getUciPort()
 
         poll.add(function () {
-            return self._refreshPorts()
+            return self._refresh()
         }, 8)
 
-        // ── Section 1: Active ports ────────────────────────────────────────
-        var portsSection = E('div', { class: 'cbi-section' }, [
-            E('h3', {}, _('DNS Proxy — Active Listening Ports')),
-            E(
-                'div',
-                { class: 'cbi-map-descr' },
-                _(
-                    'Live process info and sockets from /proc/net. Filtered by uid %s (dnsproxy). Auto-refreshes every 8 s.',
-                ).format(DNSPROXY_UID),
-            ),
-            buildPortsTable(portData),
-        ])
-
-        // ── Section 2: Diagnostics tools ──────────────────────────────────
-        var toolsSection = E('div', { class: 'cbi-map' }, [
-            E('h3', {}, _('DNS Proxy — Diagnostics')),
-            E('div', { class: 'cbi-map-descr' }, [
-                _('DNS Lookup queries 127.0.0.1:'),
-                E('span', { id: 'dnsproxy-active-port' }, livePort),
-                _(' (live port from running process).'),
+        return E('div', {}, [
+            // Section 1 — Status
+            E('div', { class: 'cbi-section' }, [
+                E('h3', {}, _('DNS Proxy — Status')),
+                E(
+                    'p',
+                    { class: 'cbi-section-descr' },
+                    _(
+                        'Live data from /proc/net and /etc/passwd. Auto-refreshes every 8 s.',
+                    ),
+                ),
+                buildStatusBlock(data),
             ]),
 
+            // Section 2 — Diagnostics
             E('div', { class: 'cbi-section' }, [
+                E('h3', {}, _('DNS Proxy — Diagnostics')),
+                E('p', { class: 'cbi-section-descr' }, [
+                    _('DNS Lookup queries 127.0.0.1:'),
+                    E('strong', { id: 'dnsproxy-live-port' }, livePort),
+                    _(' (live port from running process).'),
+                ]),
+
                 E('div', { class: 'cbi-value' }, [
                     E('label', { class: 'cbi-value-title' }, _('Target Host')),
                     E('div', { class: 'cbi-value-field' }, [
@@ -443,8 +433,6 @@ return view.extend({
                 ]),
             ]),
         ])
-
-        return E('div', {}, [portsSection, toolsSection])
     },
 
     handleSave: null,

@@ -4,6 +4,7 @@
         "read": {
             "file": {
                 "/etc/config/dnsproxy": ["read"],
+                "/etc/passwd": ["read"],
                 "/lib/apk/db/installed": ["read"],
                 "/proc/net/tcp": ["read"],
                 "/proc/net/tcp6": ["read"],
