@@ -195,7 +195,7 @@ function renderStatus(initStatus, version) {
     var gap = '\u00a0\u00a0'
     var longGap = '\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0'
 
-    return E('div', {}, [
+    return E('div', { class: 'cbi-section' }, [
         E('h3', {}, _('DNS Proxy: Status')),
 
         // Строка: Service Status
