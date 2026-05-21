@@ -95,7 +95,7 @@ function findDnsproxyProc(procs) {
         if (
             p.USER === 'dnsproxy' &&
             p.COMMAND &&
-            p.COMMAND.indexOf('/usr/bin/dnsproxy') === 0
+            p.COMMAND.indexOf('/usr/bin/dnsproxy') >= 0
         )
             found = p
     })
