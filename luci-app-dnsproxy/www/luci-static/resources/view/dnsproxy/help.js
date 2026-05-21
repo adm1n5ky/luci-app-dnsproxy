@@ -1,8 +1,9 @@
 'use strict'
 'use ui'
 
-return view.extend({
-    // Функция load выполняется ДО отрисовки страницы. Собираем данные.
+// Явно импортируем необходимые модули LuCI
+return L.Class.extend({
+    // Метод load выполняется ДО отрисовки страницы. Собираем данные.
     load: function () {
         return Promise.all([
             // 1. Получаем статус процесса из подсистемы service
@@ -16,7 +17,7 @@ return view.extend({
     },
 
     render: function (data) {
-        let serviceData = data[0]
+        let serviceData = data[0] // Результат первого промиса (ubus)
         let listenPort = uci.get('dnsproxy', 'global', 'listen_port') || '5353' // 5353 как дефолт
 
         // Проверяем, запущен ли инстанс внутри procd
@@ -70,7 +71,7 @@ return view.extend({
             return node
         }
 
-        // Ниже обычные интерактивные поля для изменения настроек
+        // Интерактивное поле для изменения настроек
         o = s.option(form.Value, 'listen_port', _('Порт прослушивания'))
         o.datatype = 'port'
         o.placeholder = '5353'
