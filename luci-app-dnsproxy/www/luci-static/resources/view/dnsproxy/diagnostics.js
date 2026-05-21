@@ -337,6 +337,13 @@ return view.extend({
     // ── Render ────────────────────────────────────────────────────────────
 
     render: function (loaded) {
+        //
+        var data = loaded[1]
+        console.log('proc:', JSON.stringify(data.proc))
+        console.log('uid:', data.uid)
+        console.log('entries:', data.entries.length)
+        //
+
         var self = this
         var data = loaded[1]
         var livePort = (data.proc && data.proc.ports[0]) || self._getUciPort()
