@@ -6,9 +6,7 @@
 'require poll'
 'require rpc'
 
-// ── /proc/net parser ──────────────────────────────────────────────────────────
-// Reads /proc/net/tcp, tcp6, udp, udp6 and extracts LISTEN/UNCONN entries
-// belonging to dnsproxy, identified by PID via getProcessList.
+// ── RPC ───────────────────────────────────────────────────────────────────────
 
 var callGetProcessList = rpc.declare({
     object: 'luci',
@@ -16,10 +14,8 @@ var callGetProcessList = rpc.declare({
     expect: { processes: [] },
 })
 
-/**
- * Little-endian hex → IPv4 dotted string.
- * "0100007F" → "127.0.0.1"
- */
+// ── /proc/net parsers ─────────────────────────────────────────────────────────
+
 function parseIPv4(hex) {
     var bytes = []
     for (var i = 0; i < 8; i += 2)
@@ -27,11 +23,6 @@ function parseIPv4(hex) {
     return bytes.join('.')
 }
 
-/**
- * /proc/net/tcp6 hex → IPv6 string (compressed).
- * "00000000000000000000000001000000" → "::1"
- * Each 8-char chunk is a little-endian uint32.
- */
 function parseIPv6(hex) {
     var bytes = []
     for (var chunk = 0; chunk < 4; chunk++) {
@@ -43,19 +34,12 @@ function parseIPv6(hex) {
     for (var i = 0; i < 16; i += 2)
         groups.push(((bytes[i] << 8) | bytes[i + 1]).toString(16))
 
-    // Compress longest run of zero groups into ::
-    var full = groups.join(':')
-    // Replace runs like "0:0:0" → "::" (only once)
-    var compressed = full.replace(/\b0(?::0)+\b/, function (m) {
-        return m.length > 2 ? ':' : m
-    })
-    // Proper :: compression using replace on joined string
-    compressed = full
-    var best = { start: -1, len: 0 }
-    var cur = { start: -1, len: 0 }
+    // Compress longest run of zero groups
+    var best = { start: -1, len: 0 },
+        cur = { start: -1, len: 0 }
     for (var i = 0; i < groups.length; i++) {
         if (groups[i] === '0') {
-            if (cur.start < 0) cur.start = i
+            if (cur.start < 0) cur = { start: i, len: 0 }
             cur.len++
             if (cur.len > best.len) best = { start: cur.start, len: cur.len }
         } else {
@@ -65,148 +49,77 @@ function parseIPv6(hex) {
     if (best.len > 1) {
         var left = groups.slice(0, best.start)
         var right = groups.slice(best.start + best.len)
-        compressed =
+        return (
             (left.length ? left.join(':') : '') +
             '::' +
             (right.length ? right.join(':') : '')
-        if (!left.length && !right.length) compressed = '::'
+        )
     }
-    return compressed
+    return groups.join(':')
 }
 
 /**
- * Parse one /proc/net/{tcp,tcp6,udp,udp6} file.
- * Returns array of { localAddr, localPort, inode } for LISTEN (0A) / UNCONN (07) states.
- * state 0A = TCP LISTEN, 07 = TCP CLOSE (skip), 01 = ESTABLISHED (skip)
- * UDP has no state column in same sense — all rows relevant (state "07" = UNCONN for UDP).
+ * Parse /proc/net/{tcp,udp,tcp6,udp6}.
+ * Filters rows by uid (column index 7) to get only dnsproxy sockets.
+ * TCP LISTEN = state 0A, UDP UNCONN = state 07.
  */
-function parseProcNet(content, isV6, isUDP) {
+function parseProcNet(content, isV6, isUDP, uid) {
     if (!content) return []
     var rows = []
     content.split('\n').forEach(function (line) {
-        line = line.trim()
-        if (!line || line.startsWith('sl')) return
-        var cols = line.split(/\s+/)
+        var cols = line.trim().split(/\s+/)
         if (cols.length < 10) return
-        // cols: sl local_addr:port rem_addr:port state ...  inode
-        var localRaw = cols[1]
         var state = cols[3]
-        var inode = cols[9]
+        var rowUid = cols[7]
+        if (rowUid !== uid) return
+        if (!isUDP && state !== '0A') return // TCP: LISTEN only
+        if (isUDP && state !== '07') return // UDP: UNCONN only
 
-        // TCP: only LISTEN (0A). UDP: state 07 = UNCONN (active socket).
-        if (!isUDP && state !== '0A') return
-        if (isUDP && state !== '07') return
-
-        var parts = localRaw.split(':')
-        var hexAddr = parts[0]
-        var hexPort = parts[1]
-        var port = parseInt(hexPort, 16)
-        var localAddr = isV6 ? parseIPv6(hexAddr) : parseIPv4(hexAddr)
-
-        rows.push({ localAddr: localAddr, localPort: port, inode: inode })
+        var parts = cols[1].split(':')
+        var addr = isV6 ? parseIPv6(parts[0]) : parseIPv4(parts[0])
+        var port = parseInt(parts[1], 16)
+        rows.push({ addr: addr, port: port })
     })
     return rows
 }
 
+// ── Process info from getProcessList ─────────────────────────────────────────
+
 /**
- * Given a PID, collect the set of socket inodes from /proc/<pid>/fd/ symlinks.
- * Each symlink looks like "socket:[12345]". We read /proc/<pid>/fdinfo is not
- * available via fs.read, but we CAN read /proc/<pid>/net/tcp directly —
- * which is process-namespace-scoped, containing only its own sockets.
- *
- * Strategy: find dnsproxy PID via getProcessList, then read
- * /proc/<pid>/net/tcp[6] and /proc/<pid>/net/udp[6].
- * These files list all sockets in the process's network namespace (same as
- * /proc/net/* in OpenWrt which has no network namespaces), filtered to
- * listening/active state. We cross-filter by inode ownership via
- * /proc/<pid>/net/tcp having the same data as /proc/net/tcp on OpenWrt.
- *
- * SIMPLEST RELIABLE APPROACH for OpenWrt (no net namespaces):
- * Read /proc/net/tcp + udp + tcp6 + udp6, find all LISTEN/UNCONN inodes,
- * then read /proc/<pid>/fd symlink targets by reading /proc/<pid>/net/tcp
- * which on OpenWrt is the SAME file (same netns). Instead, use the fact that
- * /proc/<pid>/net/tcp exists and is identical — we can just read
- * /proc/net/tcp and ALL listening sockets belong to some process.
- *
- * ACTUAL CLEAN APPROACH: read all proc/net files, collect all
- * LISTEN/UNCONN rows. On OpenWrt (single netns) these ARE the dnsproxy
- * sockets if dnsproxy is the only DNS server. But to be precise:
- * read /proc/<pid>/net/tcp — on OpenWrt this is symlinked to the same
- * global netns, so it lists all sockets. We need inode→pid mapping.
- *
- * PRAGMATIC APPROACH (works without exec):
- * Read /proc/net/tcp, udp, tcp6, udp6 → all LISTEN/UNCONN entries.
- * Read /proc/<pid>/net/tcp etc. — same data on OpenWrt (no namespaces).
- * Read the inode list for the process: /proc/<pid>/net/tcp has inode col.
- * Then read /proc/<pid>/fd directory... but fs.list may not be allowed.
- *
- * BEST PRAGMATIC: Use getProcessList to find dnsproxy pid,
- * then read /proc/<pid>/net/tcp, etc. — these show all sockets in the netns.
- * Since OpenWrt has one netns, this = global. Filter by comparing inodes
- * from /proc/net/tcp against /proc/<pid>/fd symlinks...
- *
- * FINAL PRAGMATIC (no fd listing needed):
- * Read /proc/net/tcp + udp + tcp6 + udp6.
- * ALL LISTEN/UNCONN entries on a router are typically dnsproxy's own ports
- * (port 53/5353/5354 etc). The pid comes from getProcessList.
- * Display: we know the pid. Show all LISTEN+UNCONN with their port and addr.
- * This is accurate enough for a diagnostics page.
+ * Find the real dnsproxy process (USER === 'dnsproxy', not the ujail wrapper).
+ * Returns { pid, uid, command, ports[], listens[] } or null.
  */
-
-// ── Build the ports table DOM element ────────────────────────────────────────
-
-function buildPortsTable(entries, pid) {
-    if (!entries || !entries.length) {
-        return E(
-            'div',
-            {
-                style: 'color:#6c757d;font-style:italic;padding:4px 0',
-            },
-            pid
-                ? _('dnsproxy (PID %d) has no listening sockets.').format(pid)
-                : _('dnsproxy process not found — service may be stopped.'),
+function findDnsproxyProc(procs) {
+    var found = null
+    ;(procs || []).forEach(function (p) {
+        if (
+            p.USER === 'dnsproxy' &&
+            p.COMMAND &&
+            p.COMMAND.indexOf('/usr/bin/dnsproxy') === 0
         )
+            found = p
+    })
+    if (!found) return null
+
+    var cmd = found.COMMAND
+    var ports = (cmd.match(/--port\s+(\d+)/g) || []).map(function (s) {
+        return s.split(/\s+/)[1]
+    })
+    var listens = (cmd.match(/--listen\s+(\S+)/g) || []).map(function (s) {
+        return s.split(/\s+/)[1]
+    })
+
+    return {
+        pid: found.PID,
+        command: cmd,
+        ports: ports.length ? ports : ['53'],
+        listens: listens.length ? listens : ['0.0.0.0'],
     }
-
-    var pidLabel = pid ? _(' (PID: %d)').format(pid) : ''
-
-    return E('div', {}, [
-        E(
-            'p',
-            { style: 'margin-bottom:6px;color:#495057;font-size:13px' },
-            _('dnsproxy%s — active sockets:').format(pidLabel),
-        ),
-        E(
-            'table',
-            { class: 'table' },
-            [
-                E('tr', { class: 'row-header' }, [
-                    E('th', { style: 'width:6em' }, _('Protocol')),
-                    E('th', {}, _('Local Address')),
-                    E('th', { style: 'width:5em;text-align:right' }, _('Port')),
-                ]),
-            ].concat(
-                entries.map(function (e) {
-                    var addrDisplay =
-                        e.localAddr.indexOf(':') >= 0
-                            ? '[' + e.localAddr + ']' // IPv6
-                            : e.localAddr
-                    return E('tr', {}, [
-                        E('td', {}, E('code', {}, e.proto)),
-                        E('td', {}, E('code', {}, addrDisplay)),
-                        E(
-                            'td',
-                            { style: 'text-align:right' },
-                            E('code', {}, String(e.localPort)),
-                        ),
-                    ])
-                }),
-            ),
-        ),
-    ])
 }
 
-// ── Data fetching ─────────────────────────────────────────────────────────────
+// ── Fetch all port data ───────────────────────────────────────────────────────
+
+var DNSPROXY_UID = '411' // uid of system user 'dnsproxy' on OpenWrt
 
 function fetchPortData() {
     return Promise.all([
@@ -217,101 +130,134 @@ function fetchPortData() {
         L.resolveDefault(fs.read('/proc/net/udp6'), ''),
     ]).then(function (results) {
         var procs = results[0]
-        var tcp = results[1]
-        var udp = results[2]
-        var tcp6 = results[3]
-        var udp6 = results[4]
-
-        // Find dnsproxy PID and its inode set
-        var dnsproxyPid = null
-        ;(procs || []).forEach(function (p) {
-            if (p.name === 'dnsproxy') dnsproxyPid = p.pid
-        })
-
-        if (!dnsproxyPid) return { entries: [], pid: null }
-
-        // Read /proc/<pid>/fd is not available. Instead we collect all
-        // LISTEN/UNCONN entries then cross-reference with the specific
-        // process's socket inodes via /proc/<pid>/net/tcp inode column.
-        // On OpenWrt these are globally the same. We filter by reading
-        // /proc/<pid>/net/tcp which has the SAME content but lets us
-        // confirm the process is alive.
-
-        // Collect all LISTEN/UNCONN inodes from global /proc/net files
-        var tcpRows = parseProcNet(tcp, false, false)
-        var udpRows = parseProcNet(udp, false, true)
-        var tcp6Rows = parseProcNet(tcp6, true, false)
-        var udp6Rows = parseProcNet(udp6, true, true)
-
-        // Now we need only the inodes belonging to dnsproxy.
-        // Read /proc/<pid>/net/tcp — on OpenWrt (single netns) this is the
-        // same global file. We get the PID's socket inodes from its fd dir,
-        // but fs.list('/proc/pid/fd') needs ACL. Alternative: read the
-        // symlink content via fs.read — also blocked.
-        //
-        // BEST AVAILABLE: filter by reading the *process-specific*
-        // /proc/<pid>/net/tcp file which has the SAME rows PLUS the inode
-        // is the same. We read it and collect inodes from it, then match
-        // against the global entries to get addresses.
-        //
-        // Actually on OpenWrt: /proc/<pid>/net/tcp IS /proc/net/tcp
-        // (same netns). So we have no process-level inode filter available
-        // without exec or fd listing.
-        //
-        // PRAGMATIC FINAL: all LISTEN sockets on the router on the ports
-        // configured for dnsproxy (from UCI listen_port) belong to dnsproxy.
-        // We return ALL listen/unconn entries — on a typical router this IS
-        // only dnsproxy (and maybe dnsmasq on 53, but user knows the setup).
-        // This is exactly what netstat shows.
+        var proc = findDnsproxyProc(procs)
 
         var entries = []
-        tcpRows.forEach(function (r) {
-            entries.push({
-                proto: 'TCP',
-                localAddr: r.localAddr,
-                localPort: r.localPort,
-            })
-        })
-        tcp6Rows.forEach(function (r) {
-            entries.push({
-                proto: 'TCP6',
-                localAddr: r.localAddr,
-                localPort: r.localPort,
-            })
-        })
-        udpRows.forEach(function (r) {
-            entries.push({
-                proto: 'UDP',
-                localAddr: r.localAddr,
-                localPort: r.localPort,
-            })
-        })
-        udp6Rows.forEach(function (r) {
-            entries.push({
-                proto: 'UDP6',
-                localAddr: r.localAddr,
-                localPort: r.localPort,
+        ;[
+            { content: results[1], isV6: false, isUDP: false, proto: 'TCP' },
+            { content: results[2], isV6: false, isUDP: true, proto: 'UDP' },
+            { content: results[3], isV6: true, isUDP: false, proto: 'TCP6' },
+            { content: results[4], isV6: true, isUDP: true, proto: 'UDP6' },
+        ].forEach(function (src) {
+            parseProcNet(
+                src.content,
+                src.isV6,
+                src.isUDP,
+                DNSPROXY_UID,
+            ).forEach(function (r) {
+                entries.push({ proto: src.proto, addr: r.addr, port: r.port })
             })
         })
 
-        // Deduplicate (tcp6 sometimes duplicates tcp entries)
-        var seen = {}
-        entries = entries.filter(function (e) {
-            var key = e.proto + e.localAddr + e.localPort
-            if (seen[key]) return false
-            seen[key] = true
-            return true
-        })
-
-        // Sort by port then proto
+        // Sort by port, then proto
         entries.sort(function (a, b) {
-            return a.localPort !== b.localPort
-                ? a.localPort - b.localPort
+            return a.port !== b.port
+                ? a.port - b.port
                 : a.proto.localeCompare(b.proto)
         })
 
-        return { entries: entries, pid: dnsproxyPid }
+        return { proc: proc, entries: entries }
     })
+}
+
+// ── DOM builders ─────────────────────────────────────────────────────────────
+
+function buildPortsTable(data) {
+    var proc = data.proc
+    var entries = data.entries
+
+    var children = []
+
+    // ── Process info card ──
+    if (proc) {
+        children.push(
+            E(
+                'div',
+                {
+                    style: 'background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;padding:8px 12px;margin-bottom:12px;font-size:13px',
+                },
+                [
+                    E('div', { style: 'margin-bottom:4px' }, [
+                        E('strong', {}, 'PID: '),
+                        E('code', {}, proc.pid),
+                        E('span', { style: 'margin-left:16px' }, [
+                            E('strong', {}, _('Ports') + ': '),
+                            E('code', {}, proc.ports.join(', ')),
+                        ]),
+                        E('span', { style: 'margin-left:16px' }, [
+                            E('strong', {}, _('Listen addresses') + ': '),
+                            E('code', {}, proc.listens.join(', ')),
+                        ]),
+                    ]),
+                    E('div', { style: 'color:#6c757d;word-break:break-all' }, [
+                        E('strong', {}, _('Command') + ': '),
+                        E('code', { style: 'font-size:11px' }, proc.command),
+                    ]),
+                ],
+            ),
+        )
+    } else {
+        children.push(
+            E(
+                'div',
+                {
+                    style: 'color:#dc3545;padding:6px 0;font-style:italic',
+                },
+                _('dnsproxy process not found — service may be stopped.'),
+            ),
+        )
+    }
+
+    // ── Sockets table ──
+    if (entries.length) {
+        children.push(
+            E(
+                'table',
+                { class: 'table', style: 'margin-top:8px' },
+                [
+                    E('tr', { class: 'row-header' }, [
+                        E('th', { style: 'width:6em' }, _('Protocol')),
+                        E('th', {}, _('Local Address')),
+                        E(
+                            'th',
+                            { style: 'width:5em;text-align:right' },
+                            _('Port'),
+                        ),
+                    ]),
+                ].concat(
+                    entries.map(function (e) {
+                        var display =
+                            e.addr.indexOf(':') >= 0
+                                ? '[' + e.addr + ']'
+                                : e.addr
+                        return E('tr', {}, [
+                            E('td', {}, E('code', {}, e.proto)),
+                            E('td', {}, E('code', {}, display)),
+                            E(
+                                'td',
+                                { style: 'text-align:right' },
+                                E('code', {}, String(e.port)),
+                            ),
+                        ])
+                    }),
+                ),
+            ),
+        )
+    } else if (proc) {
+        children.push(
+            E(
+                'div',
+                {
+                    style: 'color:#6c757d;font-style:italic;margin-top:8px',
+                },
+                _('No listening sockets found for uid %s.').format(
+                    DNSPROXY_UID,
+                ),
+            ),
+        )
+    }
+
+    return E('div', { id: 'dnsproxy-ports-inner' }, children)
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────
@@ -321,6 +267,7 @@ return view.extend({
         return Promise.all([uci.load('dnsproxy'), fetchPortData()])
     },
 
+    // Read first listen port from UCI — fallback if process is stopped
     _getListenPort: function () {
         var ports = uci.get('dnsproxy', 'global', 'listen_port')
         var port = Array.isArray(ports) ? ports[0] : ports
@@ -358,7 +305,9 @@ return view.extend({
     handleDig: function () {
         var host = document.getElementById('dnsproxy-diag-host').value.trim()
         if (!host) return
-        var port = this._getListenPort()
+        // Use real port from running process, fall back to UCI
+        var portEl = document.getElementById('dnsproxy-active-port')
+        var port = (portEl && portEl.textContent) || this._getListenPort()
         return this.handleCommand('nslookup', [host, '127.0.0.1:' + port])
     },
 
@@ -389,9 +338,8 @@ return view.extend({
         return fetchPortData().then(function (data) {
             var container = document.getElementById('dnsproxy-ports-inner')
             if (!container) return
-            var newContent = buildPortsTable(data.entries, data.pid)
-            newContent.id = 'dnsproxy-ports-inner'
-            container.parentNode.replaceChild(newContent, container)
+            var newEl = buildPortsTable(data)
+            container.parentNode.replaceChild(newEl, container)
         })
     },
 
@@ -399,40 +347,35 @@ return view.extend({
 
     render: function (data) {
         var self = this
-        var portData = data[1] // { entries, pid }
-        var port = self._getListenPort()
+        var portData = data[1]
+        var uciPort = self._getListenPort()
+        var livePort = portData.proc ? portData.proc.ports[0] : uciPort
 
-        // Poll ports every 8 seconds
         poll.add(function () {
             return self._refreshPorts()
         }, 8)
 
-        // ── Section 1: Listening ports ────────────────────────────────────
-        var portsInner = buildPortsTable(portData.entries, portData.pid)
-        portsInner.id = 'dnsproxy-ports-inner'
-
+        // ── Section 1: Active ports ────────────────────────────────────────
         var portsSection = E('div', { class: 'cbi-section' }, [
             E('h3', {}, _('DNS Proxy — Active Listening Ports')),
             E(
                 'div',
                 { class: 'cbi-map-descr' },
                 _(
-                    'Sockets currently opened by dnsproxy. Reads /proc/net/tcp[6] and /proc/net/udp[6] — no external tools required. Auto-refreshes every 8 s.',
-                ),
+                    'Live process info and sockets from /proc/net. Filtered by uid %s (dnsproxy). Auto-refreshes every 8 s.',
+                ).format(DNSPROXY_UID),
             ),
-            portsInner,
+            buildPortsTable(portData),
         ])
 
-        // ── Section 2: Network diagnostics ───────────────────────────────
+        // ── Section 2: Diagnostics tools ──────────────────────────────────
         var toolsSection = E('div', { class: 'cbi-map' }, [
             E('h3', {}, _('DNS Proxy — Diagnostics')),
-            E(
-                'div',
-                { class: 'cbi-map-descr' },
-                _(
-                    'Test DNS resolution via dnsproxy (127.0.0.1:%s) and network connectivity.',
-                ).format(port),
-            ),
+            E('div', { class: 'cbi-map-descr' }, [
+                _('DNS Lookup queries 127.0.0.1:'),
+                E('span', { id: 'dnsproxy-active-port' }, livePort),
+                _(' (live port from running process).'),
+            ]),
 
             E('div', { class: 'cbi-section' }, [
                 E('div', { class: 'cbi-value' }, [
