@@ -1,29 +1,31 @@
 'use strict'
 'use ui'
 
-// Запрашиваем системные модули (LuCI подгрузит их асинхронно)
+// Подсказываем LuCI, какие модули нужно загрузить в фоне
 'require form'
 'require uci'
 'require ubus'
 'require view'
 
-// Используем L.view.extend, чтобы избежать проблем с глобальной областью видимости
 return L.view.extend({
     // 1. Метод загрузки данных ДО рендеринга страницы
     load: function () {
         return Promise.all([
+            // Вызываем ubus строго через глобальный объект L.ubus
             L.resolveDefault(
-                ubus.call('service', 'list', { name: 'dnsproxy' }),
+                L.ubus.call('service', 'list', { name: 'dnsproxy' }),
                 {},
             ),
-            uci.load('dnsproxy'),
+            // Загружаем UCI строго через L.uci
+            L.uci.load('dnsproxy'),
         ])
     },
 
     // 2. Отрисовка интерфейса на основе загруженных данных
     render: function (data) {
-        let serviceData = data[0] // Результат ubus-запроса
-        let listenPort = uci.get('dnsproxy', 'global', 'listen_port') || '5353'
+        let serviceData = data[0] // Результат ubus-запроса из массива Promise.all
+        let listenPort =
+            L.uci.get('dnsproxy', 'global', 'listen_port') || '5353'
 
         // Проверяем статус процесса в procd
         let isRunning = false
@@ -63,12 +65,12 @@ return L.view.extend({
             )
         }
 
-        // Инициализируем карту формы UCI
+        // Инициализируем карту формы UCI через L.form
         let m, s, o
-        m = new form.Map('dnsproxy', _('DNSProxy Settings'))
+        m = new L.form.Map('dnsproxy', _('DNSProxy Settings'))
 
         s = m.section(
-            form.NamedSection,
+            L.form.NamedSection,
             'global',
             'dnsproxy',
             _('Статус и конфигурация'),
@@ -76,13 +78,13 @@ return L.view.extend({
 
         // Внедряем HTML-плашку в рендеринг секции
         s.render = function () {
-            let node = form.NamedSection.prototype.render.call(this)
+            let node = L.form.NamedSection.prototype.render.call(this)
             node.insertBefore(statusBox, node.firstChild)
             return node
         }
 
         // Настройка поля порта
-        o = s.option(form.Value, 'listen_port', _('Порт прослушивания'))
+        o = s.option(L.form.Value, 'listen_port', _('Порт прослушивания'))
         o.datatype = 'port'
         o.placeholder = '5353'
 
