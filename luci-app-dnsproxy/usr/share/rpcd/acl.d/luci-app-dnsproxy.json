@@ -4,10 +4,15 @@
         "read": {
             "file": {
                 "/etc/config/dnsproxy": ["read"],
-                "/lib/apk/db/installed": ["read"]
+                "/lib/apk/db/installed": ["read"],
+                "/proc/net/tcp": ["read"],
+                "/proc/net/tcp6": ["read"],
+                "/proc/net/udp": ["read"],
+                "/proc/net/udp6": ["read"]
             },
             "ubus": {
                 "file": ["read", "exec"],
+                "luci": ["getProcessList"],
                 "rc": ["init"],
                 "service": ["list"],
                 "uci": ["get", "set", "commit"]
@@ -20,6 +25,7 @@
             },
             "ubus": {
                 "file": ["write", "exec"],
+                "luci": ["getProcessList"],
                 "rc": ["init"],
                 "service": ["list"],
                 "uci": ["get", "set", "commit"]
