@@ -26,7 +26,7 @@
 ### Об оригинальном проекте:
 > **AdGuard DNS Proxy** - это простой DNS-прокси сервер с поддержкой всех современных протоколов, включая DNS-over-TLS, DNS-over-HTTPS, DNSCrypt и DNS-over-QUIC. Также он может работать в качестве полноценного DoH, DoT или DoQ сервера.
 
-<img width="1483" height="1078" alt="изображение" src="https://github.com/user-attachments/assets/da0d63f4-21a0-494f-a4a7-74d633c963a6" />
+<img width="1543" height="942" alt="изображение" src="https://github.com/user-attachments/assets/5cd4672f-9bd5-4e1e-88f4-8d20a6f3623a" />
 
 Скрипт синхронизации файлов на роутере. Внимание! Это пока только для тестов
 
