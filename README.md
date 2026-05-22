@@ -1,5 +1,31 @@
 # luci-app-dnsproxy
-OpenWrt веб панелька для Adguard DNS Proxy
+
+🌐 [English](#english) | 🇷🇺 [Русский](#русский)
+
+---
+
+<a id="english"></a>
+## English
+
+**luci-app-dnsproxy** is a Web interface (LuCI) for managing [AdGuard DNS Proxy](https://github.com/AdguardTeam/dnsproxy) on OpenWrt 25.12+ routers.
+
+> ℹ️ **Note:** This project is a configuration interface (GUI). The core routing and protocol handling are powered by the original [AdguardTeam/dnsproxy](https://github.com/AdguardTeam/dnsproxy) project.
+
+### About upstream project:
+> **AdGuard DNS Proxy** is a simple DNS proxy server that supports all existing DNS protocols including DNS-over-TLS, DNS-over-HTTPS, DNSCrypt, and DNS-over-QUIC. Moreover, it can work as a DNS-over-HTTPS, DNS-over-TLS or DNS-over-QUIC server.
+
+---
+
+<a id="русский"></a>
+## Русский
+
+**luci-app-dnsproxy** — это веб-интерфейс (LuCI) для управления [AdGuard DNS Proxy](https://github.com/AdguardTeam/dnsproxy) на роутерах OpenWrt 25.12+.
+
+> ℹ️ **Примечание:** Этот проект является графической оболочкой (панелью управления). Вся логика работы с протоколами и маршрутизация выполняются оригинальным движком [AdguardTeam/dnsproxy](https://github.com/AdguardTeam/dnsproxy).
+
+### Об оригинальном проекте:
+> **AdGuard DNS Proxy** — это простой DNS-прокси сервер с поддержкой всех современных протоколов, включая DNS-over-TLS, DNS-over-HTTPS, DNSCrypt и DNS-over-QUIC. Также он может работать в качестве полноценного DoH, DoT или DoQ сервера.
+
 
 <img width="1483" height="1078" alt="изображение" src="https://github.com/user-attachments/assets/da0d63f4-21a0-494f-a4a7-74d633c963a6" />
 
