@@ -31,7 +31,8 @@ function parseIPv6(hex) {
     var groups = []
     for (var i = 0; i < 16; i += 2)
         groups.push(((bytes[i] << 8) | bytes[i + 1]).toString(16))
-    var best = { start: -1, len: 0 }, cur = { start: -1, len: 0 }
+    var best = { start: -1, len: 0 },
+        cur = { start: -1, len: 0 }
     for (var i = 0; i < groups.length; i++) {
         if (groups[i] === '0') {
             if (cur.start < 0) cur = { start: i, len: 0 }
@@ -42,34 +43,32 @@ function parseIPv6(hex) {
         }
     }
     if (best.len > 1) {
-        var left  = groups.slice(0, best.start)
+        var left = groups.slice(0, best.start)
         var right = groups.slice(best.start + best.len)
-        return (left.length ? left.join(':') : '') + '::' + (right.length ? right.join(':') : '')
+        return (
+            (left.length ? left.join(':') : '') +
+            '::' +
+            (right.length ? right.join(':') : '')
+        )
     }
     return groups.join(':')
 }
 
-/**
- * Parse /proc/net/{tcp,udp,tcp6,udp6}.
- * Returns rows filtered by uid. No state filter — caller decides.
- * state 0A = TCP LISTEN, 07 = UDP UNCONN
- */
-function parseProcNetRaw(content, isV6, uid) {
+function parseProcNetRaw(content, isV6) {
     if (!content) return []
     var rows = []
     content.split('\n').forEach(function (line) {
         var cols = line.trim().split(/\s+/)
         if (cols.length < 10) return
-        if (uid !== null && cols[7] !== uid) return
         var state = cols[3]
         if (state !== '0A' && state !== '07') return
         var parts = cols[1].split(':')
         rows.push({
-            addr:  isV6 ? parseIPv6(parts[0]) : parseIPv4(parts[0]),
-            port:  parseInt(parts[1], 16),
-            uid:   cols[7],
+            addr: isV6 ? parseIPv6(parts[0]) : parseIPv4(parts[0]),
+            port: parseInt(parts[1], 16),
+            uid: cols[7],
             proto: state === '0A' ? 'TCP' : 'UDP',
-            isV6:  isV6,
+            isV6: isV6,
         })
     })
     return rows
@@ -80,91 +79,132 @@ function parseProcNetRaw(content, isV6, uid) {
 function fetchAll() {
     return Promise.all([
         L.resolveDefault(fs.read('/etc/passwd'), ''),
-        L.resolveDefault(fs.read('/proc/net/tcp'),  ''),
-        L.resolveDefault(fs.read('/proc/net/udp'),  ''),
+        L.resolveDefault(fs.read('/proc/net/tcp'), ''),
+        L.resolveDefault(fs.read('/proc/net/udp'), ''),
         L.resolveDefault(fs.read('/proc/net/tcp6'), ''),
         L.resolveDefault(fs.read('/proc/net/udp6'), ''),
-        L.resolveDefault(uci.load('dhcp'), null),
         L.resolveDefault(callGetProcessList(), []),
     ]).then(function (r) {
         var passwd = r[0]
+        var procs = r[5]
 
-        // uid lookup from /etc/passwd
         function uidOf(name) {
-            var m = passwd.match(new RegExp('^' + name + ':[^:]+:([0-9]+):', 'm'))
+            var m = passwd.match(
+                new RegExp('^' + name + ':[^:]+:([0-9]+):', 'm'),
+            )
             return m ? m[1] : null
         }
 
         var dnsproxyUid = uidOf('dnsproxy')
-        var dnsmasqUid  = uidOf('dnsmasq')
+        var dnsmasqUid = uidOf('dnsmasq')
 
-        // Parse all sockets (no uid filter — we want everyone on port 53 too)
+        // All sockets
         var allRows = []
         ;[
             { content: r[1], isV6: false },
             { content: r[2], isV6: false },
-            { content: r[3], isV6: true  },
-            { content: r[4], isV6: true  },
+            { content: r[3], isV6: true },
+            { content: r[4], isV6: true },
         ].forEach(function (src) {
-            parseProcNetRaw(src.content, src.isV6, null).forEach(function (row) {
+            parseProcNetRaw(src.content, src.isV6).forEach(function (row) {
                 allRows.push(row)
             })
         })
 
-        // dnsproxy sockets
-        var dnsproxyEntries = allRows.filter(function (r) {
-            return r.uid === dnsproxyUid
+        // dnsproxy sockets grouped by addr
+        var dnsproxyRows = allRows.filter(function (e) {
+            return e.uid === dnsproxyUid
         })
-
-        // Group dnsproxy sockets by addr → { ports: Set, protos: Set, count: n }
         var byAddr = {}
-        dnsproxyEntries.forEach(function (e) {
+        dnsproxyRows.forEach(function (e) {
             var key = e.addr
-            if (!byAddr[key]) byAddr[key] = { addr: e.addr, ports: {}, protos: {}, count: 0, isV6: e.isV6 }
-            byAddr[key].ports[e.port]   = true
+            if (!byAddr[key])
+                byAddr[key] = {
+                    addr: e.addr,
+                    ports: {},
+                    protos: {},
+                    count: 0,
+                    isV6: e.isV6,
+                }
+            byAddr[key].ports[e.port] = true
             byAddr[key].protos[e.isV6 ? e.proto + '6' : e.proto] = true
             byAddr[key].count++
         })
-        var groupedEntries = Object.keys(byAddr).map(function (k) { return byAddr[k] })
+        var groupedEntries = Object.keys(byAddr).map(function (k) {
+            return byAddr[k]
+        })
         groupedEntries.sort(function (a, b) {
-            // loopback first, then by addr string
-            var aLoop = (a.addr === '127.0.0.1' || a.addr === '::1') ? 0 : 1
-            var bLoop = (b.addr === '127.0.0.1' || b.addr === '::1') ? 0 : 1
-            return aLoop !== bLoop ? aLoop - bLoop : a.addr.localeCompare(b.addr)
+            var aLoop = a.addr === '127.0.0.1' || a.addr === '::1' ? 0 : 1
+            var bLoop = b.addr === '127.0.0.1' || b.addr === '::1' ? 0 : 1
+            return aLoop !== bLoop
+                ? aLoop - bLoop
+                : a.addr.localeCompare(b.addr)
         })
 
-        // port 53 listeners
-        var port53 = allRows.filter(function (e) { return e.port === 53 })
+        // port 53 owner uid(s)
+        var port53rows = allRows.filter(function (e) {
+            return e.port === 53
+        })
         var port53uids = {}
-        port53.forEach(function (e) { port53uids[e.uid] = true })
+        port53rows.forEach(function (e) {
+            port53uids[e.uid] = true
+        })
 
-        // who owns port 53
-        var port53owner = null
-        if (Object.keys(port53uids).length) {
-            if (port53uids[dnsmasqUid])  port53owner = 'dnsmasq'
-            else if (port53uids[dnsproxyUid]) port53owner = 'dnsproxy'
-            else port53owner = 'uid:' + Object.keys(port53uids).join(',')
-        }
+        var port53owner = null // 'dnsproxy' | 'dnsmasq' | null
+        if (port53uids[dnsproxyUid]) port53owner = 'dnsproxy'
+        else if (port53uids[dnsmasqUid]) port53owner = 'dnsmasq'
+        else if (Object.keys(port53uids).length) port53owner = 'other'
 
-        // dnsmasq redirect check: look for server= option pointing to dnsproxy port
+        // dnsmasq redirect: server= entries pointing to a dnsproxy port
+        var dnsproxPorts = {}
+        dnsproxyRows.forEach(function (e) {
+            dnsproxPorts[e.port] = true
+        })
+
         var dnsmasqRedirect = null
         try {
-            // uci dhcp.@dnsmasq[0].server list
-            var servers = uci.get('dhcp', uci.sections('dhcp', 'dnsmasq')[0], 'server')
-            if (!Array.isArray(servers)) servers = servers ? [servers] : []
-            // Match patterns like 127.0.0.1#5353 or /domain/127.0.0.1#5353
-            var dnsPorts = {}
-            dnsproxyEntries.forEach(function (e) { dnsPorts[e.port] = true })
-            servers.forEach(function (s) {
-                var m = s.match(/#(\d+)$/)
-                if (m && dnsPorts[parseInt(m[1])]) dnsmasqRedirect = s
-            })
-        } catch (e) { /* dhcp uci may not be loaded */ }
+            var sections = uci.sections('dhcp', 'dnsmasq')
+            if (sections && sections.length) {
+                var servers = uci.get('dhcp', sections[0]['.name'], 'server')
+                if (!Array.isArray(servers)) servers = servers ? [servers] : []
+                servers.forEach(function (s) {
+                    if (dnsmasqRedirect) return
+                    var m = s.match(/#(\d+)$/)
+                    if (m && dnsproxPorts[parseInt(m[1])]) dnsmasqRedirect = s
+                })
+            }
+        } catch (e) {
+            /* ignore */
+        }
 
-        // build select options: unique IPv4 addr:port (TCP only)
-        var selectOpts = []
-        var seenOpts = {}
-        dnsproxyEntries.forEach(function (e) {
+        // dnsmasq running? ports it listens on (if not on 53)
+        var dnsmasqRunning = procs.some(function (p) {
+            return (
+                p.USER === 'dnsmasq' && p.COMMAND && p.COMMAND.charAt(0) === '/'
+            )
+        })
+        var dnsmasqPorts = []
+        if (dnsmasqUid) {
+            var seen = {}
+            allRows
+                .filter(function (e) {
+                    return e.uid === dnsmasqUid
+                })
+                .forEach(function (e) {
+                    if (!seen[e.port]) {
+                        seen[e.port] = true
+                        dnsmasqPorts.push(e.port)
+                    }
+                })
+            dnsmasqPorts.sort(function (a, b) {
+                return a - b
+            })
+        }
+
+        // select options: unique IPv4 TCP addr:port for dnsproxy
+        var selectOpts = [],
+            seenOpts = {}
+        dnsproxyRows.forEach(function (e) {
             if (e.proto !== 'TCP' || e.isV6) return
             var key = e.addr + ':' + e.port
             if (seenOpts[key]) return
@@ -174,138 +214,221 @@ function fetchAll() {
         selectOpts.sort()
 
         return {
-            dnsproxyUid:    dnsproxyUid,
+            dnsproxyUid: dnsproxyUid,
+            dnsmasqUid: dnsmasqUid,
             groupedEntries: groupedEntries,
-            port53owner:    port53owner,
+            port53owner: port53owner,
             dnsmasqRedirect: dnsmasqRedirect,
-            selectOpts:     selectOpts,
+            dnsmasqRunning: dnsmasqRunning,
+            dnsmasqPorts: dnsmasqPorts,
+            selectOpts: selectOpts,
         }
     })
 }
 
-// ── DOM builders ──────────────────────────────────────────────────────────────
+// ── Port 53 info block ────────────────────────────────────────────────────────
+
+function buildPort53Block(data) {
+    var owner = data.port53owner
+    var redirect = data.dnsmasqRedirect
+    var dmRun = data.dnsmasqRunning
+    var dmPorts = data.dnsmasqPorts
+    var rows = []
+
+    // ── Who owns port 53 ──
+    if (!owner) {
+        rows.push(
+            E('div', { class: 'alert-message' }, [
+                '⚠ ',
+                _('Nothing is listening on port 53.'),
+            ]),
+        )
+    } else if (owner === 'dnsmasq') {
+        rows.push(
+            E('div', {}, [
+                E('span', { class: 'ifacebadge' }, 'Port 53'),
+                ' ',
+                _('handled by'),
+                ' ',
+                E('strong', {}, 'dnsmasq'),
+            ]),
+        )
+
+        // Redirect check
+        if (redirect) {
+            rows.push(
+                E(
+                    'div',
+                    { class: 'alert-message success', style: 'margin-top:6px' },
+                    [
+                        '✔ ',
+                        _('Forwarding to dnsproxy via '),
+                        E('code', {}, redirect),
+                    ],
+                ),
+            )
+        } else {
+            rows.push(
+                E(
+                    'div',
+                    { class: 'alert-message warning', style: 'margin-top:6px' },
+                    [
+                        '⚠ ',
+                        _('No forwarding to dnsproxy detected. See the '),
+                        E(
+                            'a',
+                            { href: L.url('admin/services/dnsproxy/help') },
+                            _('Help page'),
+                        ),
+                        _(' for setup instructions.'),
+                    ],
+                ),
+            )
+        }
+    } else if (owner === 'dnsproxy') {
+        rows.push(
+            E('div', { class: 'alert-message success' }, [
+                '✔ ',
+                _('dnsproxy listens directly on port 53.'),
+            ]),
+        )
+
+        // dnsmasq status when dnsproxy owns 53
+        rows.push(
+            E('div', { style: 'margin-top:8px' }, [
+                E('strong', {}, 'dnsmasq: '),
+                dmRun
+                    ? dmPorts.length
+                        ? E('span', {}, [
+                              _('running, listens on port(s) '),
+                              E('code', {}, dmPorts.join(', ')),
+                          ])
+                        : E('span', {}, _('running'))
+                    : E('span', { style: 'color:#6c757d' }, _('not running')),
+            ]),
+        )
+    } else {
+        rows.push(
+            E('div', {}, [
+                E('span', { class: 'ifacebadge' }, 'Port 53'),
+                ' ',
+                _('owner unknown (uid not in /etc/passwd).'),
+            ]),
+        )
+    }
+
+    return E(
+        'div',
+        {
+            style: 'padding:10px 14px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;font-size:13px;line-height:1.6',
+        },
+        rows,
+    )
+}
+
+// ── Sockets table ─────────────────────────────────────────────────────────────
 
 function buildStatusBlock(data) {
-    var entries  = data.groupedEntries
-    var p53owner = data.port53owner
-    var redirect = data.dnsmasqRedirect
-
-    // ── Sockets table (grouped by addr) ──────────────────────────────────
     var sockTable = E('table', { class: 'table' }, [
         E('tr', { class: 'tr table-titles' }, [
             E('th', { class: 'th' }, _('Local Address')),
             E('th', { class: 'th' }, _('Ports')),
             E('th', { class: 'th' }, _('Protocols')),
-            E('th', { class: 'th', style: 'width:5em;text-align:center' }, _('Sockets')),
+            E(
+                'th',
+                { class: 'th', style: 'width:5em;text-align:center' },
+                _('Sockets'),
+            ),
         ]),
     ])
 
-    cbi_update_table(sockTable,
-        entries.map(function (e) {
+    cbi_update_table(
+        sockTable,
+        data.groupedEntries.map(function (e) {
             var display = e.isV6 ? '[' + e.addr + ']' : e.addr
-            var ports   = Object.keys(e.ports).sort(function(a,b){return a-b}).join(', ')
-            var protos  = Object.keys(e.protos).sort().join(', ')
+            var ports = Object.keys(e.ports)
+                .sort(function (a, b) {
+                    return a - b
+                })
+                .join(', ')
+            var protos = Object.keys(e.protos).sort().join(', ')
             return [
                 E('span', { class: 'ifacebadge' }, display),
                 E('span', { class: 'ifacebadge' }, ports),
                 E('span', { class: 'ifacebadge' }, protos),
-                E('span', { style: 'text-align:center;display:block' }, String(e.count)),
+                E(
+                    'span',
+                    { style: 'text-align:center;display:block' },
+                    String(e.count),
+                ),
             ]
         }),
-        E('em', {}, data.dnsproxyUid
-            ? _('No listening sockets found — service may be stopped.')
-            : _('Could not determine dnsproxy uid from /etc/passwd.'))
+        E(
+            'em',
+            {},
+            data.dnsproxyUid
+                ? _('No listening sockets — service may be stopped.')
+                : _('Cannot determine dnsproxy uid from /etc/passwd.'),
+        ),
     )
 
-    // ── Port 53 / redirect info block ─────────────────────────────────────
-    var infoRows = []
-
-    // Who listens on 53?
-    if (!p53owner) {
-        infoRows.push(E('div', { class: 'alert-message' }, [
-            E('strong', {}, '⚠ '),
-            _('Nothing is listening on port 53.'),
-        ]))
-    } else if (p53owner === 'dnsmasq') {
-        infoRows.push(E('div', {}, [
-            E('span', { class: 'ifacebadge' }, 'Port 53'),
-            ' ',
-            E('span', {}, _('— handled by ')),
-            E('strong', {}, 'dnsmasq'),
-        ]))
-
-        // Redirect check
-        if (redirect) {
-            infoRows.push(E('div', { class: 'alert-message success', style: 'margin-top:6px' }, [
-                E('strong', {}, '✔ '),
-                _('dnsmasq forwards to dnsproxy via '),
-                E('code', {}, redirect),
-            ]))
-        } else {
-            infoRows.push(E('div', { class: 'alert-message warning', style: 'margin-top:6px' }, [
-                E('strong', {}, '⚠ '),
-                _('dnsmasq does NOT forward to dnsproxy. Add to /etc/config/dhcp:'),
-                E('br'),
-                E('code', {}, "list server '127.0.0.1#PORT'"),
-                E('br'),
-                E('code', {}, "option noresolv '1'"),
-            ]))
-        }
-    } else if (p53owner === 'dnsproxy') {
-        infoRows.push(E('div', { class: 'alert-message success' }, [
-            E('strong', {}, '✔ '),
-            _('dnsproxy listens directly on port 53.'),
-        ]))
-    } else {
-        infoRows.push(E('div', {}, [
-            E('span', { class: 'ifacebadge' }, 'Port 53'),
-            ' ',
-            _('— owned by '),
-            E('code', {}, p53owner),
-        ]))
-    }
-
-    var infoBlock = E('div', {
-        style: 'padding:8px 12px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;font-size:13px',
-    }, infoRows)
-
-    // ── Layout: table left, info right ───────────────────────────────────
     return E('div', { id: 'dnsproxy-status-block' }, [
-        E('div', { style: 'display:flex;gap:1.5em;align-items:flex-start;flex-wrap:wrap' }, [
-            E('div', { style: 'flex:2;min-width:280px' }, [ sockTable ]),
-            E('div', { style: 'flex:1;min-width:220px' }, [
-                E('strong', { style: 'display:block;margin-bottom:6px' }, _('Port 53 status')),
-                infoBlock,
-            ]),
-        ]),
+        E(
+            'div',
+            {
+                style: 'display:flex;gap:1.5em;align-items:flex-start;flex-wrap:wrap',
+            },
+            [
+                E('div', { style: 'flex:2;min-width:300px' }, [sockTable]),
+                E('div', { style: 'flex:1;min-width:220px' }, [
+                    E(
+                        'strong',
+                        {
+                            style: 'display:block;margin-bottom:6px;font-size:13px',
+                        },
+                        _('Port 53 status'),
+                    ),
+                    buildPort53Block(data),
+                ]),
+            ],
+        ),
     ])
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────
 
 return view.extend({
-
     load: function () {
-        return fetchAll()
+        return Promise.all([uci.load('dhcp'), fetchAll()])
     },
 
     handleCommand: function (exec, args) {
         var buttons = document.querySelectorAll('.diag-action > .cbi-button')
         var out = document.getElementById('dnsproxy-diag-output')
-        buttons.forEach(function (b) { b.disabled = true })
+        buttons.forEach(function (b) {
+            b.disabled = true
+        })
         out.textContent = ''
         return fs
             .exec_direct(exec, args, 'text', false, true, function (ev) {
                 out.textContent = ev.target.response
             })
-            .then(function (res) { out.textContent = res })
-            .catch(function (err) { ui.addNotification(null, E('p', String(err))) })
-            .finally(function () { buttons.forEach(function (b) { b.disabled = false }) })
+            .then(function (res) {
+                out.textContent = res
+            })
+            .catch(function (err) {
+                ui.addNotification(null, E('p', String(err)))
+            })
+            .finally(function () {
+                buttons.forEach(function (b) {
+                    b.disabled = false
+                })
+            })
     },
 
     _getSelectedServer: function () {
         var sel = document.getElementById('dnsproxy-server-select')
-        return (sel && sel.value) ? sel.value : '127.0.0.1:53'
+        return sel && sel.value ? sel.value : '127.0.0.1:53'
     },
 
     handleDig: function () {
@@ -323,7 +446,16 @@ return view.extend({
     handleTraceroute: function () {
         var host = document.getElementById('dnsproxy-diag-host').value.trim()
         if (!host) return
-        return this.handleCommand('traceroute', ['-q', '1', '-w', '2', '-n', '-m', '20', host])
+        return this.handleCommand('traceroute', [
+            '-q',
+            '1',
+            '-w',
+            '2',
+            '-n',
+            '-m',
+            '20',
+            host,
+        ])
     },
 
     _refresh: function () {
@@ -331,13 +463,13 @@ return view.extend({
             var old = document.getElementById('dnsproxy-status-block')
             if (!old) return
             old.parentNode.replaceChild(buildStatusBlock(data), old)
-
-            // Rebuild select options preserving current value
             var sel = document.getElementById('dnsproxy-server-select')
             if (sel) {
                 var cur = sel.value
+                var opts = data.selectOpts.length
+                    ? data.selectOpts
+                    : ['127.0.0.1:53']
                 sel.innerHTML = ''
-                var opts = data.selectOpts.length ? data.selectOpts : ['127.0.0.1:53']
                 opts.forEach(function (o) {
                     var opt = document.createElement('option')
                     opt.value = o
@@ -349,39 +481,57 @@ return view.extend({
         })
     },
 
-    render: function (data) {
+    render: function (loaded) {
         var self = this
+        var data = loaded[1]
         var opts = data.selectOpts.length ? data.selectOpts : ['127.0.0.1:53']
 
-        poll.add(function () { return self._refresh() }, 8)
+        poll.add(function () {
+            return self._refresh()
+        }, 8)
 
         return E('div', {}, [
-
-            // Section 1 — Active sockets + port 53 status
             E('div', { class: 'cbi-section' }, [
                 E('h3', {}, _('DNS Proxy — Status')),
-                E('p', { class: 'cbi-section-descr' },
-                    _('Live sockets grouped by address (uid-filtered). Auto-refreshes every 8 s.')),
+                E(
+                    'p',
+                    { class: 'cbi-section-descr' },
+                    _(
+                        'Live sockets grouped by address. Auto-refreshes every 8 s.',
+                    ),
+                ),
                 buildStatusBlock(data),
             ]),
 
-            // Section 2 — Diagnostics
             E('div', { class: 'cbi-section' }, [
                 E('h3', {}, _('DNS Proxy — Diagnostics')),
 
                 E('div', { class: 'cbi-value' }, [
-                    E('label', { class: 'cbi-value-title', 'for': 'dnsproxy-server-select' },
-                        _('DNS Server')),
+                    E(
+                        'label',
+                        {
+                            class: 'cbi-value-title',
+                            for: 'dnsproxy-server-select',
+                        },
+                        _('DNS Server'),
+                    ),
                     E('div', { class: 'cbi-value-field' }, [
-                        E('select', {
-                            id: 'dnsproxy-server-select',
-                            class: 'cbi-input-select',
-                            style: 'margin-right:.5em',
-                        }, opts.map(function (o) {
-                            return E('option', { value: o }, o)
-                        })),
-                        E('span', { class: 'cbi-value-description' },
-                            _('Populated from live sockets. Used for DNS Lookup.')),
+                        E(
+                            'select',
+                            {
+                                id: 'dnsproxy-server-select',
+                                class: 'cbi-input-select',
+                                style: 'margin-right:.5em',
+                            },
+                            opts.map(function (o) {
+                                return E('option', { value: o }, o)
+                            }),
+                        ),
+                        E(
+                            'span',
+                            { class: 'cbi-value-description' },
+                            _('Live dnsproxy listeners. Used for DNS Lookup.'),
+                        ),
                     ]),
                 ]),
 
@@ -397,20 +547,41 @@ return view.extend({
                             value: 'example.com',
                         }),
                         E('span', { class: 'diag-action' }, [
-                            E('button', {
-                                class: 'btn cbi-button cbi-button-action',
-                                click: ui.createHandlerFn(self, 'handleDig'),
-                            }, _('DNS Lookup')),
+                            E(
+                                'button',
+                                {
+                                    class: 'btn cbi-button cbi-button-action',
+                                    click: ui.createHandlerFn(
+                                        self,
+                                        'handleDig',
+                                    ),
+                                },
+                                _('DNS Lookup'),
+                            ),
                             '\u00a0',
-                            E('button', {
-                                class: 'btn cbi-button cbi-button-action',
-                                click: ui.createHandlerFn(self, 'handlePing'),
-                            }, _('Ping')),
+                            E(
+                                'button',
+                                {
+                                    class: 'btn cbi-button cbi-button-action',
+                                    click: ui.createHandlerFn(
+                                        self,
+                                        'handlePing',
+                                    ),
+                                },
+                                _('Ping'),
+                            ),
                             '\u00a0',
-                            E('button', {
-                                class: 'btn cbi-button cbi-button-action',
-                                click: ui.createHandlerFn(self, 'handleTraceroute'),
-                            }, _('Traceroute')),
+                            E(
+                                'button',
+                                {
+                                    class: 'btn cbi-button cbi-button-action',
+                                    click: ui.createHandlerFn(
+                                        self,
+                                        'handleTraceroute',
+                                    ),
+                                },
+                                _('Traceroute'),
+                            ),
                         ]),
                     ]),
                 ]),
