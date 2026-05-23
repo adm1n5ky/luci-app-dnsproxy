@@ -4,13 +4,6 @@
 'require ui'
 'require uci'
 'require poll'
-'require rpc'
-
-var callGetProcessList = rpc.declare({
-    object: 'luci',
-    method: 'getProcessList',
-    expect: { processes: [] },
-})
 
 // ── /proc/net parsers ─────────────────────────────────────────────────────────
 
@@ -82,9 +75,7 @@ function fetchAll() {
         L.resolveDefault(fs.read('/proc/net/tcp6'), ''),
         L.resolveDefault(fs.read('/proc/net/udp6'), ''),
     ]).then(function (r) {
-        // UID from /etc/passwd — stable across all OpenWrt installs but not hardcoded
-        var passwd = r[0]
-        var m = passwd.match(/^dnsproxy:[^:]+:([0-9]+):/m)
+        var m = r[0].match(/^dnsproxy:[^:]+:([0-9]+):/m)
         var uid = m ? m[1] : null
 
         var entries = []
@@ -114,6 +105,25 @@ function fetchAll() {
 
         return { uid: uid, entries: entries }
     })
+}
+
+/**
+ * Build unique list of IPv4 addr:port pairs for the DNS server selector.
+ * Only TCP entries, no IPv6 (nslookup support varies).
+ * Sorted by port, then addr.
+ */
+function buildServerOptions(entries) {
+    var seen = {}
+    var opts = []
+    entries.forEach(function (e) {
+        if (e.proto !== 'TCP') return // UDP duplicates TCP ports
+        if (e.addr.indexOf(':') >= 0) return // skip IPv6 for nslookup
+        var key = e.addr + ':' + e.port
+        if (seen[key]) return
+        seen[key] = true
+        opts.push(key)
+    })
+    return opts
 }
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -149,6 +159,22 @@ function buildStatusBlock(data) {
         ),
     )
 
+    // Rebuild server selector options if it exists
+    var sel = document.getElementById('dnsproxy-server-select')
+    if (sel) {
+        var opts = buildServerOptions(entries)
+        var curVal = sel.value
+        sel.innerHTML = ''
+        opts.forEach(function (o) {
+            var opt = document.createElement('option')
+            opt.value = o
+            opt.textContent = o
+            if (o === curVal) opt.selected = true
+            sel.appendChild(opt)
+        })
+        if (!sel.value && opts.length) sel.value = opts[0]
+    }
+
     return E('div', { id: 'dnsproxy-status-block' }, [sockTable])
 }
 
@@ -157,12 +183,6 @@ function buildStatusBlock(data) {
 return view.extend({
     load: function () {
         return Promise.all([uci.load('dnsproxy'), fetchAll()])
-    },
-
-    _getUciPort: function () {
-        var p = uci.get('dnsproxy', 'global', 'listen_port')
-        p = Array.isArray(p) ? p[0] : p
-        return p && /^\d+$/.test(String(p).trim()) ? String(p).trim() : '53'
     },
 
     handleCommand: function (exec, args) {
@@ -189,11 +209,15 @@ return view.extend({
             })
     },
 
+    _getSelectedServer: function () {
+        var sel = document.getElementById('dnsproxy-server-select')
+        return sel && sel.value ? sel.value : '127.0.0.1:53'
+    },
+
     handleDig: function () {
         var host = document.getElementById('dnsproxy-diag-host').value.trim()
         if (!host) return
-        var port = this._getUciPort()
-        return this.handleCommand('nslookup', [host, '127.0.0.1:' + port])
+        return this.handleCommand('nslookup', [host, this._getSelectedServer()])
     },
 
     handlePing: function () {
@@ -228,7 +252,10 @@ return view.extend({
     render: function (loaded) {
         var self = this
         var data = loaded[1]
-        var port = self._getUciPort()
+        var opts = buildServerOptions(data.entries)
+        var selOpts = opts.map(function (o) {
+            return E('option', { value: o }, o)
+        })
 
         poll.add(function () {
             return self._refresh()
@@ -242,7 +269,7 @@ return view.extend({
                     'p',
                     { class: 'cbi-section-descr' },
                     _(
-                        'Sockets filtered by dnsproxy uid from /etc/passwd. Auto-refreshes every 8 s.',
+                        'Live sockets filtered by dnsproxy uid from /etc/passwd. Auto-refreshes every 8 s.',
                     ),
                 ),
                 buildStatusBlock(data),
@@ -251,14 +278,46 @@ return view.extend({
             // Section 2 — Diagnostics
             E('div', { class: 'cbi-section' }, [
                 E('h3', {}, _('DNS Proxy — Diagnostics')),
-                E(
-                    'p',
-                    { class: 'cbi-section-descr' },
-                    _(
-                        'DNS Lookup queries 127.0.0.1:%s (from Settings).',
-                    ).format(port),
-                ),
 
+                // DNS server selector
+                E('div', { class: 'cbi-value' }, [
+                    E(
+                        'label',
+                        {
+                            class: 'cbi-value-title',
+                            for: 'dnsproxy-server-select',
+                        },
+                        _('DNS Server'),
+                    ),
+                    E('div', { class: 'cbi-value-field' }, [
+                        E(
+                            'select',
+                            {
+                                id: 'dnsproxy-server-select',
+                                class: 'cbi-input-select',
+                                style: 'margin-right:.5em',
+                            },
+                            selOpts.length
+                                ? selOpts
+                                : [
+                                      E(
+                                          'option',
+                                          { value: '127.0.0.1:53' },
+                                          '127.0.0.1:53',
+                                      ),
+                                  ],
+                        ),
+                        E(
+                            'span',
+                            { class: 'cbi-value-description' },
+                            _(
+                                'Address and port of the dnsproxy listener to test against.',
+                            ),
+                        ),
+                    ]),
+                ]),
+
+                // Target host + action buttons
                 E('div', { class: 'cbi-value' }, [
                     E('label', { class: 'cbi-value-title' }, _('Target Host')),
                     E('div', { class: 'cbi-value-field' }, [
@@ -310,6 +369,7 @@ return view.extend({
                     ]),
                 ]),
 
+                // Output
                 E('div', { class: 'cbi-value' }, [
                     E('label', { class: 'cbi-value-title' }, _('Output')),
                     E('div', { class: 'cbi-value-field' }, [
