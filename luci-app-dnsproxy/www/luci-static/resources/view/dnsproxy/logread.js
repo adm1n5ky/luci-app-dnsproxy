@@ -16,24 +16,8 @@ var LEVEL_COLORS = {
     FATAL: '#6f42c1',
 }
 
-// function fetchLog() {
-//     return L.resolveDefault(
-//         fs.exec_direct('logread', ['-l', String(LOG_LINES)]),
-//         '',
-//     ).then(function (raw) {
-//         if (!raw) return ''
-//         return raw
-//             .split('\n')
-//             .filter(function (line) {
-//                 return line.indexOf('dnsproxy') !== -1
-//             })
-//             .join('\n')
-//     })
-// }
-
 function fetchLog() {
     return L.resolveDefault(
-        // Вызываем официальный системный wrapper вместо logread
         fs.exec_direct('/usr/libexec/syslog-wrapper', [
             '-l',
             String(LOG_LINES),
@@ -64,27 +48,27 @@ function getLineLevel(line) {
     return 'INFO'
 }
 
-// Рендерит строки лога с подсветкой синтаксиса
-function renderLines(text, levelFilter) {
-    var container = E('div', {
-        id: 'dnsproxy-log-output',
-        style: [
-            'width:100%',
-            'font-family:"JetBrains Mono",Consolas,Monaco,monospace',
-            'font-size:13px',
-            'line-height:13px',
-            'white-space:pre-wrap',
-            'word-break:break-all',
-            'background:#0d1117',
-            'color:#c9d1d9',
-            'padding:12px',
-            'border-radius:6px',
-            'border:1px solid #30363d',
-            'height:600px',
-            'overflow-y:auto',
-            'box-sizing:border-box',
-        ].join(';'),
-    })
+var LOG_CONTAINER_STYLE = [
+    'width:100%',
+    'font-family:"JetBrains Mono",Consolas,Monaco,monospace',
+    'font-size:13px',
+    'line-height:13px',
+    'white-space:pre-wrap',
+    'word-break:break-all',
+    'background:#0d1117',
+    'color:#c9d1d9',
+    'padding:12px',
+    'border-radius:6px',
+    'border:1px solid #30363d',
+    'height:600px',
+    'overflow-y:auto',
+    'box-sizing:border-box',
+].join(';')
+
+// Заполняет существующий контейнер строками лога.
+// Не создаёт новый элемент — мутирует переданный.
+function fillLogContainer(container, text, levelFilter) {
+    while (container.firstChild) container.removeChild(container.firstChild)
 
     var lines = text ? text.split('\n') : []
     var filtered = lines.filter(function (line) {
@@ -104,10 +88,10 @@ function renderLines(text, levelFilter) {
                         : ''),
             ),
         )
-        return container
+        return
     }
 
-    filtered.forEach(function (line, idx) {
+    filtered.forEach(function (line) {
         var level = getLineLevel(line)
         var color = LEVEL_COLORS[level] || '#c9d1d9'
 
@@ -115,26 +99,23 @@ function renderLines(text, levelFilter) {
             style: 'margin-bottom:1px;padding:2px 0;border-left:3px solid transparent',
         })
 
-        // Regex для разбора структуры:
-        // Tue May 19 20:02:09 2026 daemon.info dnsproxy[30267]: 2026/05/19 17:02:09.786592 INFO message
         var m = line.match(
             /^(\w{3} \w{3} +\d+ [\d:]+ \d{4})\s+([\w.]+)\s+(dnsproxy\[\d+\]):\s+([\d/]+ [\d:.]+)\s+(DEBUG|INFO|WARN|ERROR|FATAL)\s(.*)$/,
         )
 
         if (m) {
-            // Подсветка по частям
             lineDiv.appendChild(
                 E('span', { style: 'color:#484f58' }, m[1] + ' '),
-            ) // syslog timestamp
+            )
             lineDiv.appendChild(
                 E('span', { style: 'color:#6e7681' }, m[2] + ' '),
-            ) // facility
+            )
             lineDiv.appendChild(
                 E('span', { style: 'color:#8b949e' }, m[3] + ': '),
-            ) // process[pid]
+            )
             lineDiv.appendChild(
                 E('span', { style: 'color:#6e7681' }, m[4] + ' '),
-            ) // inner timestamp
+            )
             lineDiv.appendChild(
                 E(
                     'span',
@@ -148,9 +129,8 @@ function renderLines(text, levelFilter) {
                     },
                     m[5] + ' ',
                 ),
-            ) // LEVEL
+            )
 
-            // Сообщение — красим key=value пары
             var msg = m[6]
             var highlighted = msg.replace(/(\w+)=/g, function (match, key) {
                 return '<span style="color:#79c0ff">' + key + '</span>='
@@ -160,20 +140,16 @@ function renderLines(text, levelFilter) {
             msgSpan.innerHTML = highlighted
             lineDiv.appendChild(msgSpan)
 
-            // Подсветка левой границы для ERROR/FATAL
             if (level === 'ERROR' || level === 'FATAL') {
                 lineDiv.style.borderLeftColor = color
                 lineDiv.style.backgroundColor = color + '11'
             }
         } else {
-            // Fallback — просто красим всю строку по уровню
             lineDiv.appendChild(E('span', { style: 'color:' + color }, line))
         }
 
         container.appendChild(lineDiv)
     })
-
-    return container
 }
 
 return view.extend({
@@ -184,15 +160,19 @@ return view.extend({
         return fetchLog()
     },
 
+    // Обновляет содержимое существующего контейнера без его замены.
+    // Сохраняет позицию скролла: если пользователь прокрутил вверх —
+    // остаётся там; если был у низа — прижимается к новому концу.
     _rebuildOutput: function () {
-        var old = document.getElementById('dnsproxy-log-output')
-        if (!old) return
-        var newEl = renderLines(this._lastRaw, this._currentFilter)
-        old.parentNode.replaceChild(newEl, old)
-        // Автоскролл вниз
-        setTimeout(function () {
-            newEl.scrollTop = newEl.scrollHeight
-        }, 50)
+        var el = document.getElementById('dnsproxy-log-output')
+        if (!el) return
+
+        var atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4
+        var savedTop = el.scrollTop
+
+        fillLogContainer(el, this._lastRaw, this._currentFilter)
+
+        el.scrollTop = atBottom ? el.scrollHeight : savedTop
     },
 
     refresh: function () {
@@ -207,12 +187,10 @@ return view.extend({
         var self = this
         self._lastRaw = log
 
-        // Поллинг каждые 10 секунд
         poll.add(function () {
             return self.refresh()
         }, 10)
 
-        // Кнопки фильтра по уровням
         var filterBtns = LEVELS.map(function (lvl) {
             var isActive = lvl === self._currentFilter
             return E(
@@ -223,9 +201,8 @@ return view.extend({
                         (isActive ? ' cbi-button-action' : ''),
                     'data-level': lvl,
                     style: 'margin-right:6px;margin-bottom:4px;min-width:70px;font-size:11px;text-transform:uppercase',
-                    click: function (ev) {
+                    click: function () {
                         self._currentFilter = lvl
-                        // Обновляем стили кнопок
                         document
                             .querySelectorAll('[data-level]')
                             .forEach(function (btn) {
@@ -242,13 +219,17 @@ return view.extend({
             )
         })
 
-        var outputEl = renderLines(log, 'ALL')
+        // Создаём контейнер один раз — далее только заполняем его
+        var outputEl = E('div', {
+            id: 'dnsproxy-log-output',
+            style: LOG_CONTAINER_STYLE,
+        })
+        fillLogContainer(outputEl, log, 'ALL')
 
-        // Автоскролл при первом рендере
-        setTimeout(function () {
-            var el = document.getElementById('dnsproxy-log-output')
-            if (el) el.scrollTop = el.scrollHeight
-        }, 100)
+        // Прокрутка вниз при первом рендере
+        requestAnimationFrame(function () {
+            outputEl.scrollTop = outputEl.scrollHeight
+        })
 
         return E('div', { class: 'cbi-map' }, [
             E('h3', {}, _('DNS Proxy: System Log')),
@@ -261,7 +242,6 @@ return view.extend({
             ),
 
             E('div', { class: 'cbi-section' }, [
-                // Панель управления
                 E(
                     'div',
                     {
@@ -303,7 +283,6 @@ return view.extend({
                         ]),
                 ),
 
-                // Легенда уровней
                 E(
                     'div',
                     {
@@ -332,7 +311,6 @@ return view.extend({
                     }),
                 ),
 
-                // Контейнер логов
                 outputEl,
             ]),
         ])
