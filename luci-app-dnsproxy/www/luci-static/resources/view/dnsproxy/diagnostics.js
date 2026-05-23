@@ -486,6 +486,15 @@ return view.extend({
     },
 
     render: function (loaded) {
+        console.log(
+            'procs sample:',
+            JSON.stringify(
+                loaded[1] && loaded[1].procs ? 'has procs' : 'no procs field',
+            ),
+        )
+        console.log('dnsmasqRunning:', loaded[1].dnsmasqRunning)
+        console.log('port53owner:', loaded[1].port53owner)
+
         var self = this
         var data = loaded[1]
         var opts = data.selectOpts.length ? data.selectOpts : ['127.0.0.1:53']
