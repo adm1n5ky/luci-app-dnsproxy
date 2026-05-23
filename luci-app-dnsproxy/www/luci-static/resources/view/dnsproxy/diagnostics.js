@@ -96,7 +96,6 @@ function fetchAll() {
         }
 
         var dnsproxyUid = uidOf('dnsproxy')
-        var dnsmasqUid = uidOf('dnsmasq')
 
         // All sockets
         var allRows = []
@@ -111,24 +110,25 @@ function fetchAll() {
             })
         })
 
-        // dnsproxy sockets grouped by addr
+        // dnsproxy sockets by uid
         var dnsproxyRows = allRows.filter(function (e) {
             return e.uid === dnsproxyUid
         })
+
+        // Group dnsproxy sockets by addr
         var byAddr = {}
         dnsproxyRows.forEach(function (e) {
-            var key = e.addr
-            if (!byAddr[key])
-                byAddr[key] = {
+            if (!byAddr[e.addr])
+                byAddr[e.addr] = {
                     addr: e.addr,
                     ports: {},
                     protos: {},
                     count: 0,
                     isV6: e.isV6,
                 }
-            byAddr[key].ports[e.port] = true
-            byAddr[key].protos[e.isV6 ? e.proto + '6' : e.proto] = true
-            byAddr[key].count++
+            byAddr[e.addr].ports[e.port] = true
+            byAddr[e.addr].protos[e.isV6 ? e.proto + '6' : e.proto] = true
+            byAddr[e.addr].count++
         })
         var groupedEntries = Object.keys(byAddr).map(function (k) {
             return byAddr[k]
@@ -141,21 +141,52 @@ function fetchAll() {
                 : a.addr.localeCompare(b.addr)
         })
 
-        // port 53 owner uid(s)
-        var port53rows = allRows.filter(function (e) {
+        // Determine who owns port 53:
+        // ujail opens sockets as root (uid=0) before dropping privileges,
+        // so we CANNOT rely on uid in /proc/net. Instead check process list.
+        var port53any = allRows.some(function (e) {
             return e.port === 53
         })
-        var port53uids = {}
-        port53rows.forEach(function (e) {
-            port53uids[e.uid] = true
+
+        // Is dnsmasq running? (real process, not ujail wrapper)
+        var dnsmasqRunning = procs.some(function (p) {
+            return (
+                p.USER === 'dnsmasq' &&
+                typeof p.COMMAND === 'string' &&
+                p.COMMAND.charAt(0) === '/'
+            )
         })
 
-        var port53owner = null // 'dnsproxy' | 'dnsmasq' | null
-        if (port53uids[dnsproxyUid]) port53owner = 'dnsproxy'
-        else if (port53uids[dnsmasqUid]) port53owner = 'dnsmasq'
-        else if (Object.keys(port53uids).length) port53owner = 'other'
+        // Is dnsproxy on port 53? Check by its uid which IS set correctly
+        var dnsproxyOn53 = dnsproxyRows.some(function (e) {
+            return e.port === 53
+        })
 
-        // dnsmasq redirect: server= entries pointing to a dnsproxy port
+        // port53owner: 'dnsproxy' | 'dnsmasq' | 'unknown' | null
+        var port53owner = null
+        if (port53any) {
+            if (dnsproxyOn53) port53owner = 'dnsproxy'
+            else if (dnsmasqRunning) port53owner = 'dnsmasq'
+            else port53owner = 'unknown'
+        }
+
+        // dnsmasq ports (from its running command: -p option or default 53)
+        var dnsmasqPorts = []
+        if (dnsmasqRunning) {
+            var dmProc = procs.find(function (p) {
+                return (
+                    p.USER === 'dnsmasq' &&
+                    typeof p.COMMAND === 'string' &&
+                    p.COMMAND.charAt(0) === '/'
+                )
+            })
+            if (dmProc) {
+                var pm = dmProc.COMMAND.match(/\s-p\s+(\d+)/)
+                dnsmasqPorts = pm ? [parseInt(pm[1])] : [53]
+            }
+        }
+
+        // dnsmasq redirect check via uci dhcp
         var dnsproxPorts = {}
         dnsproxyRows.forEach(function (e) {
             dnsproxPorts[e.port] = true
@@ -177,50 +208,26 @@ function fetchAll() {
             /* ignore */
         }
 
-        // dnsmasq running? ports it listens on (if not on 53)
-        var dnsmasqRunning = procs.some(function (p) {
-            return (
-                p.USER === 'dnsmasq' && p.COMMAND && p.COMMAND.charAt(0) === '/'
-            )
-        })
-        var dnsmasqPorts = []
-        if (dnsmasqUid) {
-            var seen = {}
-            allRows
-                .filter(function (e) {
-                    return e.uid === dnsmasqUid
-                })
-                .forEach(function (e) {
-                    if (!seen[e.port]) {
-                        seen[e.port] = true
-                        dnsmasqPorts.push(e.port)
-                    }
-                })
-            dnsmasqPorts.sort(function (a, b) {
-                return a - b
-            })
-        }
-
         // select options: unique IPv4 TCP addr:port for dnsproxy
         var selectOpts = [],
             seenOpts = {}
         dnsproxyRows.forEach(function (e) {
             if (e.proto !== 'TCP' || e.isV6) return
             var key = e.addr + ':' + e.port
-            if (seenOpts[key]) return
-            seenOpts[key] = true
-            selectOpts.push(key)
+            if (!seenOpts[key]) {
+                seenOpts[key] = true
+                selectOpts.push(key)
+            }
         })
         selectOpts.sort()
 
         return {
             dnsproxyUid: dnsproxyUid,
-            dnsmasqUid: dnsmasqUid,
             groupedEntries: groupedEntries,
             port53owner: port53owner,
-            dnsmasqRedirect: dnsmasqRedirect,
             dnsmasqRunning: dnsmasqRunning,
             dnsmasqPorts: dnsmasqPorts,
+            dnsmasqRedirect: dnsmasqRedirect,
             selectOpts: selectOpts,
         }
     })
@@ -235,12 +242,13 @@ function buildPort53Block(data) {
     var dmPorts = data.dnsmasqPorts
     var rows = []
 
-    // ── Who owns port 53 ──
     if (!owner) {
+        // Nothing on 53 at all
         rows.push(
-            E('div', { class: 'alert-message' }, [
-                '⚠ ',
-                _('Nothing is listening on port 53.'),
+            E('div', {}, [
+                E('span', { class: 'ifacebadge' }, 'Port 53'),
+                ' ',
+                _('not in use.'),
             ]),
         )
     } else if (owner === 'dnsmasq') {
@@ -253,8 +261,6 @@ function buildPort53Block(data) {
                 E('strong', {}, 'dnsmasq'),
             ]),
         )
-
-        // Redirect check
         if (redirect) {
             rows.push(
                 E(
@@ -274,7 +280,7 @@ function buildPort53Block(data) {
                     { class: 'alert-message warning', style: 'margin-top:6px' },
                     [
                         '⚠ ',
-                        _('No forwarding to dnsproxy detected. See the '),
+                        _('No forwarding to dnsproxy. See the '),
                         E(
                             'a',
                             { href: L.url('admin/services/dnsproxy/help') },
@@ -292,27 +298,25 @@ function buildPort53Block(data) {
                 _('dnsproxy listens directly on port 53.'),
             ]),
         )
-
-        // dnsmasq status when dnsproxy owns 53
+        // dnsmasq status
         rows.push(
             E('div', { style: 'margin-top:8px' }, [
                 E('strong', {}, 'dnsmasq: '),
                 dmRun
-                    ? dmPorts.length
-                        ? E('span', {}, [
-                              _('running, listens on port(s) '),
-                              E('code', {}, dmPorts.join(', ')),
-                          ])
-                        : E('span', {}, _('running'))
+                    ? E('span', {}, [
+                          _('running, port(s) '),
+                          E('code', {}, dmPorts.join(', ')),
+                      ])
                     : E('span', { style: 'color:#6c757d' }, _('not running')),
             ]),
         )
     } else {
+        // Something on 53 but we can't identify it
         rows.push(
             E('div', {}, [
                 E('span', { class: 'ifacebadge' }, 'Port 53'),
                 ' ',
-                _('owner unknown (uid not in /etc/passwd).'),
+                _('in use by an unknown process.'),
             ]),
         )
     }
@@ -320,13 +324,13 @@ function buildPort53Block(data) {
     return E(
         'div',
         {
-            style: 'padding:10px 14px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;font-size:13px;line-height:1.6',
+            style: 'padding:10px 14px;background:#f8f9fa;border:1px solid #dee2e6;border-radius:4px;font-size:13px;line-height:1.8',
         },
         rows,
     )
 }
 
-// ── Sockets table ─────────────────────────────────────────────────────────────
+// ── Status block ──────────────────────────────────────────────────────────────
 
 function buildStatusBlock(data) {
     var sockTable = E('table', { class: 'table' }, [
