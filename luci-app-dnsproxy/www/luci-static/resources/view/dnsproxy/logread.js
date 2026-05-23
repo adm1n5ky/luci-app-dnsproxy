@@ -65,19 +65,240 @@ var LOG_CONTAINER_STYLE = [
     'box-sizing:border-box',
 ].join(';')
 
+// ── Парсинг одной строки лога ─────────────────────────────────────────────────
+// Формат: "Sat May 23 20:30:34 2026 daemon.info dnsproxy[4855]: 2026/05/23 17:30:34.110882 DEBUG msg..."
+var LINE_RE =
+    /^(\w{3} \w{3} +\d+ [\d:]+ \d{4})\s+[\w.]+\s+dnsproxy\[(\d+)\]:\s+([\d/]+ [\d:.]+)\s+(DEBUG|INFO|WARN|ERROR|FATAL)\s(.*)$/
+
+// "DEBUG out prefix=dnsproxy line_num=N line="..." " — строки DNS wire-dump
+var WIRE_RE = /^out\s+prefix=\S+\s+line_num=(\d+)\s+line="(.*)"$/
+
+function parseLine(raw) {
+    var m = raw.match(LINE_RE)
+    if (!m) return null
+    return {
+        pid: m[2],
+        ts: m[3], // внутренний timestamp dnsproxy — точнее syslog
+        level: m[4],
+        msg: m[5],
+    }
+}
+
+// Группирует строки: обычные идут по одной, серии "DEBUG out line_num=N"
+// схлопываются в один объект { isDump: true, lines: [...] }
+function groupLines(parsed) {
+    var groups = []
+    var dumpBuf = null // буфер текущего wire-dump блока
+
+    parsed.forEach(function (p) {
+        var wire = p.level === 'DEBUG' ? p.msg.match(WIRE_RE) : null
+
+        if (wire) {
+            if (!dumpBuf) {
+                dumpBuf = { isDump: true, pid: p.pid, ts: p.ts, lines: [] }
+                groups.push(dumpBuf)
+            }
+            // line_num=6 line="" — пустая строка — скипаем в буфере
+            if (wire[2] !== '') dumpBuf.lines.push(wire[2])
+        } else {
+            dumpBuf = null
+            groups.push(p)
+        }
+    })
+
+    return groups
+}
+
+// Подсвечивает key=value в сообщении
+function highlightKV(msg) {
+    return msg.replace(/(\w+)=/g, function (_, key) {
+        return '<span style="color:#79c0ff">' + key + '</span>='
+    })
+}
+
+// Строит DOM-строку для обычного лог-события
+function buildNormalRow(p, prevTs, prevPid) {
+    var color = LEVEL_COLORS[p.level] || '#c9d1d9'
+
+    // Показываем только время если секунда совпадает с предыдущей строкой,
+    // иначе — полный timestamp.
+    var tsSecond = p.ts.slice(0, 19) // "2026/05/23 17:30:34"
+    var tsMicro = p.ts.slice(19) // ".110882"
+    var sameSecond = prevTs && prevTs.slice(0, 19) === tsSecond
+    var tsDisplay = sameSecond
+        ? E(
+              'span',
+              { style: 'color:#3a3f47;min-width:8.5em;display:inline-block' },
+              '           ' + tsMicro,
+          )
+        : E(
+              'span',
+              { style: 'color:#484f58;min-width:8.5em;display:inline-block' },
+              tsSecond + tsMicro,
+          )
+
+    // pid показываем только при смене
+    var pidSpan =
+        prevPid && prevPid === p.pid
+            ? E(
+                  'span',
+                  {
+                      style: 'color:transparent;user-select:none;min-width:4em;display:inline-block',
+                  },
+                  '      ',
+              )
+            : E(
+                  'span',
+                  { style: 'color:#444c56;min-width:4em;display:inline-block' },
+                  '[' + p.pid + ']',
+              )
+
+    var levelSpan = E(
+        'span',
+        {
+            style:
+                'color:' +
+                color +
+                ';font-weight:600;padding:1px 4px;border-radius:2px;' +
+                'background:' +
+                color +
+                '22;min-width:4.5em;display:inline-block;text-align:center',
+        },
+        p.level,
+    )
+
+    var msgSpan = E('span', { style: 'color:#c9d1d9' })
+    msgSpan.innerHTML = highlightKV(p.msg)
+
+    var row = E(
+        'div',
+        {
+            style: 'margin-bottom:1px;padding:2px 0;border-left:3px solid transparent;display:flex;gap:6px;align-items:baseline',
+        },
+        [tsDisplay, pidSpan, levelSpan, msgSpan],
+    )
+
+    if (p.level === 'ERROR' || p.level === 'FATAL') {
+        row.style.borderLeftColor = color
+        row.style.backgroundColor = color + '11'
+    }
+
+    return row
+}
+
+// Строит свёрнутый/раскрытый блок DNS wire-dump
+function buildDumpRow(group, prevTs, prevPid) {
+    var count = group.lines.length
+    var label = 'DNS dump (' + count + ' lines)'
+
+    var tsSecond = group.ts.slice(0, 19)
+    var tsMicro = group.ts.slice(19)
+    var sameSecond = prevTs && prevTs.slice(0, 19) === tsSecond
+    var tsDisplay = sameSecond
+        ? E(
+              'span',
+              { style: 'color:#3a3f47;min-width:8.5em;display:inline-block' },
+              '           ' + tsMicro,
+          )
+        : E(
+              'span',
+              { style: 'color:#484f58;min-width:8.5em;display:inline-block' },
+              tsSecond + tsMicro,
+          )
+
+    var pidSpan =
+        prevPid && prevPid === group.pid
+            ? E(
+                  'span',
+                  {
+                      style: 'color:transparent;user-select:none;min-width:4em;display:inline-block',
+                  },
+                  '      ',
+              )
+            : E(
+                  'span',
+                  { style: 'color:#444c56;min-width:4em;display:inline-block' },
+                  '[' + group.pid + ']',
+              )
+
+    var levelSpan = E(
+        'span',
+        {
+            style:
+                'color:#6c757d;font-weight:600;padding:1px 4px;border-radius:2px;' +
+                'background:#6c757d22;min-width:4.5em;display:inline-block;text-align:center',
+        },
+        'DEBUG',
+    )
+
+    // Содержимое dump-блока (скрыто по умолчанию)
+    var body = E(
+        'div',
+        {
+            style:
+                'display:none;margin-top:4px;padding:6px 10px;background:#161b22;' +
+                'border:1px solid #30363d;border-radius:4px;color:#8b949e;' +
+                'font-size:12px;line-height:1.6;white-space:pre',
+        },
+        group.lines.join('\n'),
+    )
+
+    // Кнопка-триггер
+    var toggle = E(
+        'span',
+        {
+            style: 'color:#6c757d;cursor:pointer;border-bottom:1px dashed #6c757d44',
+            click: function () {
+                var open = body.style.display !== 'none'
+                body.style.display = open ? 'none' : 'block'
+                toggle.textContent = open ? '▶ ' + label : '▼ ' + label
+            },
+        },
+        '▶ ' + label,
+    )
+
+    var row = E(
+        'div',
+        {
+            style: 'margin-bottom:1px;padding:2px 0;border-left:3px solid transparent',
+        },
+        [
+            E(
+                'div',
+                {
+                    style: 'display:flex;gap:6px;align-items:baseline',
+                },
+                [tsDisplay, pidSpan, levelSpan, toggle],
+            ),
+            body,
+        ],
+    )
+
+    return row
+}
+
 // Заполняет существующий контейнер строками лога.
 // Не создаёт новый элемент — мутирует переданный.
 function fillLogContainer(container, text, levelFilter) {
     while (container.firstChild) container.removeChild(container.firstChild)
 
-    var lines = text ? text.split('\n') : []
-    var filtered = lines.filter(function (line) {
-        if (!line.trim()) return false
-        if (levelFilter === 'ALL') return true
-        return getLineLevel(line) === levelFilter
+    var rawLines = text ? text.split('\n') : []
+
+    // Парсим и фильтруем
+    var parsed = []
+    rawLines.forEach(function (raw) {
+        if (!raw.trim()) return
+        var p = parseLine(raw)
+        if (!p) {
+            // строка не совпала с форматом — показываем как есть
+            parsed.push({ raw: raw, level: getLineLevel(raw) })
+            return
+        }
+        if (levelFilter !== 'ALL' && p.level !== levelFilter) return
+        parsed.push(p)
     })
 
-    if (!filtered.length) {
+    if (!parsed.length) {
         container.appendChild(
             E(
                 'div',
@@ -91,64 +312,29 @@ function fillLogContainer(container, text, levelFilter) {
         return
     }
 
-    filtered.forEach(function (line) {
-        var level = getLineLevel(line)
-        var color = LEVEL_COLORS[level] || '#c9d1d9'
+    var groups = groupLines(parsed)
+    var prevTs = null
+    var prevPid = null
 
-        var lineDiv = E('div', {
-            style: 'margin-bottom:1px;padding:2px 0;border-left:3px solid transparent',
-        })
-
-        var m = line.match(
-            /^(\w{3} \w{3} +\d+ [\d:]+ \d{4})\s+([\w.]+)\s+(dnsproxy\[\d+\]):\s+([\d/]+ [\d:.]+)\s+(DEBUG|INFO|WARN|ERROR|FATAL)\s(.*)$/,
-        )
-
-        if (m) {
-            lineDiv.appendChild(
-                E('span', { style: 'color:#484f58' }, m[1] + ' '),
+    groups.forEach(function (g) {
+        var row
+        if (g.raw) {
+            // нераспознанная строка
+            row = E(
+                'div',
+                { style: 'color:#6e7681;margin-bottom:1px;padding:2px 0' },
+                g.raw,
             )
-            lineDiv.appendChild(
-                E('span', { style: 'color:#6e7681' }, m[2] + ' '),
-            )
-            lineDiv.appendChild(
-                E('span', { style: 'color:#8b949e' }, m[3] + ': '),
-            )
-            lineDiv.appendChild(
-                E('span', { style: 'color:#6e7681' }, m[4] + ' '),
-            )
-            lineDiv.appendChild(
-                E(
-                    'span',
-                    {
-                        style:
-                            'color:' +
-                            color +
-                            ';font-weight:600;padding:1px 4px;border-radius:2px;background:' +
-                            color +
-                            '22',
-                    },
-                    m[5] + ' ',
-                ),
-            )
-
-            var msg = m[6]
-            var highlighted = msg.replace(/(\w+)=/g, function (match, key) {
-                return '<span style="color:#79c0ff">' + key + '</span>='
-            })
-
-            var msgSpan = E('span', { style: 'color:#c9d1d9' })
-            msgSpan.innerHTML = highlighted
-            lineDiv.appendChild(msgSpan)
-
-            if (level === 'ERROR' || level === 'FATAL') {
-                lineDiv.style.borderLeftColor = color
-                lineDiv.style.backgroundColor = color + '11'
-            }
+        } else if (g.isDump) {
+            row = buildDumpRow(g, prevTs, prevPid)
+            prevTs = g.ts
+            prevPid = g.pid
         } else {
-            lineDiv.appendChild(E('span', { style: 'color:' + color }, line))
+            row = buildNormalRow(g, prevTs, prevPid)
+            prevTs = g.ts
+            prevPid = g.pid
         }
-
-        container.appendChild(lineDiv)
+        container.appendChild(row)
     })
 }
 
