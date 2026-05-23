@@ -9,7 +9,7 @@
 var callGetProcessList = rpc.declare({
     object: 'luci',
     method: 'getProcessList',
-    expect: { processes: [] },
+    expect: { result: [] }, // ← было processes, надо result
 })
 
 // ── /proc/net parsers ─────────────────────────────────────────────────────────
