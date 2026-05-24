@@ -5,14 +5,15 @@
 
 var LOG_LINES = 500
 var POLL_INTERVAL = 10000
+var LOG_BOTTOM_GAP = 16 // px отступ от нижнего края viewport до конца лога
 
 var LEVELS = ['ALL', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
+// Высота #dnsproxy-log выставляется динамически через _fitHeight().
+// Здесь только начальное значение чтобы не было прыжка при старте.
 var LOG_CSS =
     '\
-/* скрываем footer чтобы он не ломал высоту */\
-footer.mobile-hide { display: none !important; }\
 #dnsproxy-log {\
   font-family: "JetBrains Mono", Consolas, Monaco, monospace;\
   font-size: 13px;\
@@ -21,8 +22,8 @@ footer.mobile-hide { display: none !important; }\
   color: #c9d1d9;\
   padding: 10px 14px;\
   border-radius: 0 0 6px 6px;\
-  height: calc(100vh - 110px);\
-  min-height: 300px;\
+  height: 400px;\
+  min-height: 200px;\
   overflow-y: auto;\
   box-sizing: border-box;\
 }\
@@ -48,7 +49,6 @@ footer.mobile-hide { display: none !important; }\
   border: 1px solid #30363d;\
   border-radius: 6px;\
 }\
-/* блок-обёртка строки + dump-body — block, не flex */\
 .dpl-entry { display: block; }\
 .dpl-row {\
   display: flex;\
@@ -100,7 +100,6 @@ footer.mobile-hide { display: none !important; }\
   border-bottom: 1px dashed #7ec8a066;\
   user-select: none;\
 }\
-/* dump-body — снаружи flex-строки, выровнен отступом */\
 .dpl-dump-body {\
   display: none;\
   margin: 2px 0 4px calc(26ch + 6ch + 5ch + 24px);\
@@ -242,7 +241,6 @@ function buildNormalRow(p, prevTs, prevPid) {
     ])
 }
 
-// openKeys — Set-образный объект { key: true } с ключами открытых dump-блоков
 function buildDumpRow(group, prevTs, prevPid, openKeys) {
     var isIn = group.dir === 'in'
     var arrow = isIn ? '▲' : '▼'
@@ -267,13 +265,8 @@ function buildDumpRow(group, prevTs, prevPid, openKeys) {
             class: 'dpl-dump-toggle',
             click: function () {
                 var open = body.classList.contains('open')
-                if (open) {
-                    body.classList.remove('open')
-                    toggle.textContent = label
-                } else {
-                    body.classList.add('open')
-                    toggle.textContent = label + ' ▸ collapse'
-                }
+                body.classList.toggle('open')
+                toggle.textContent = open ? label : label + ' ▸ collapse'
             },
         },
         isOpen ? label + ' ▸ collapse' : label,
@@ -290,9 +283,9 @@ function buildDumpRow(group, prevTs, prevPid, openKeys) {
     ])
 }
 
-// ── Заполнение контейнера ─────────────────────────────────────────────────────
+// ── Заполнение ────────────────────────────────────────────────────────────────
 function fillLog(container, text, levelFilter, openKeys) {
-    // Запоминаем открытые блоки ДО очистки
+    // Сохраняем открытые блоки до очистки
     if (!openKeys) {
         openKeys = {}
         container
@@ -382,11 +375,27 @@ return view.extend({
     _paused: false,
     _timer: null,
     _followBtn: null,
-    _pauseBtn: null,
     _statusEl: null,
+    _resizeObs: null,
 
     load: function () {
         return fetchLog()
+    },
+
+    // Высота лога = расстояние от верхнего края #dnsproxy-log до нижней
+    // границы страницы минус footer и небольшой отступ.
+    // Вызывается при рендере и по ResizeObserver.
+    _fitHeight: function () {
+        var logEl = document.getElementById('dnsproxy-log')
+        var footer = document.querySelector('footer.mobile-hide')
+        if (!logEl) return
+
+        var logTop = logEl.getBoundingClientRect().top + window.scrollY
+        var pageHeight = document.documentElement.scrollHeight
+        var footerH = footer ? footer.offsetHeight : 0
+        var h = pageHeight - logTop - footerH - LOG_BOTTOM_GAP
+
+        logEl.style.height = Math.max(h, 200) + 'px'
     },
 
     _isAtBottom: function (el) {
@@ -398,7 +407,6 @@ return view.extend({
         if (!el) return
         var atBottom = this._isAtBottom(el)
         var savedTop = el.scrollTop
-        // openKeys собирается внутри fillLog до очистки
         fillLog(el, this._lastRaw, this._filter)
         el.scrollTop = atBottom ? el.scrollHeight : savedTop
         this._updateFollow(el)
@@ -421,12 +429,8 @@ return view.extend({
             fetchLog().then(function (log) {
                 self._lastRaw = log
                 self._rebuild()
-                // Показываем footer-текст вместо обычного footer
-                var footer = document.querySelector('footer.mobile-hide')
                 self._setStatus(
-                    footer
-                        ? footer.textContent.trim().replace(/\s+/g, ' ')
-                        : new Date().toLocaleTimeString(),
+                    _('updated') + ' ' + new Date().toLocaleTimeString(),
                 )
                 self._scheduleRefresh()
             })
@@ -437,7 +441,6 @@ return view.extend({
         var self = this
         self._lastRaw = log
 
-        // CSS один раз
         if (!document.getElementById('dnsproxy-log-css')) {
             var style = document.createElement('style')
             style.id = 'dnsproxy-log-css'
@@ -445,7 +448,6 @@ return view.extend({
             document.head.appendChild(style)
         }
 
-        // Кнопки фильтра
         var filterBtns = LEVELS.map(function (lvl) {
             return E(
                 'button',
@@ -488,7 +490,6 @@ return view.extend({
             },
             '⏸ ' + _('Pause'),
         )
-        self._pauseBtn = pauseBtn
 
         var followBtn = E(
             'button',
@@ -508,13 +509,6 @@ return view.extend({
         var statusEl = E('span', { id: 'dnsproxy-status-line' }, '')
         self._statusEl = statusEl
 
-        // Подставляем footer-текст сразу
-        requestAnimationFrame(function () {
-            var footer = document.querySelector('footer.mobile-hide')
-            if (footer)
-                self._setStatus(footer.textContent.trim().replace(/\s+/g, ' '))
-        })
-
         var toolbar = E(
             'div',
             { id: 'dnsproxy-toolbar' },
@@ -529,15 +523,37 @@ return view.extend({
         logEl.addEventListener('scroll', function () {
             self._updateFollow(logEl)
         })
+
+        // После вставки в DOM: подогнать высоту, прокрутить вниз
         requestAnimationFrame(function () {
+            self._fitHeight()
             logEl.scrollTop = logEl.scrollHeight
+
+            // Пересчитываем высоту при изменении размера окна
+            window.addEventListener('resize', function () {
+                self._fitHeight()
+            })
+
+            // ResizeObserver на footer — пересчитываем если footer меняет высоту
+            var footer = document.querySelector('footer.mobile-hide')
+            if (footer && window.ResizeObserver) {
+                self._resizeObs = new ResizeObserver(function () {
+                    self._fitHeight()
+                })
+                self._resizeObs.observe(footer)
+            }
         })
 
         self._scheduleRefresh()
 
-        return E('div', { class: 'cbi-section', style: 'padding:0;margin:0' }, [
-            E('div', { id: 'dnsproxy-log-wrap' }, [toolbar, logEl]),
-        ])
+        return E(
+            'div',
+            {
+                class: 'cbi-section',
+                style: 'padding:0;margin:1rem 0 0;background:none;',
+            },
+            [E('div', { id: 'dnsproxy-log-wrap' }, [toolbar, logEl])],
+        )
     },
 
     handleSave: null,
