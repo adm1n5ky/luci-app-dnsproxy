@@ -102,7 +102,7 @@ var LOG_CSS =
 }\
 .dpl-dump-body {\
   display: none;\
-  margin: 2px 0 4px calc(26ch + 6ch + 5ch + 24px);\
+  margin: 2px 0 4px calc(26ch + 8ch + 6ch + 24px);\
   padding: 6px 10px;\
   background: #161b22;\
   border: 1px solid #21262d;\
@@ -385,17 +385,33 @@ return view.extend({
     // Высота лога = расстояние от верхнего края #dnsproxy-log до нижней
     // границы страницы минус footer и небольшой отступ.
     // Вызывается при рендере и по ResizeObserver.
+    // _fitHeight: function () {
+    //     var logEl = document.getElementById('dnsproxy-log')
+    //     var footer = document.querySelector('footer.mobile-hide')
+    //     if (!logEl) return
+
+    //     var logTop = logEl.getBoundingClientRect().top + window.scrollY
+    //     var pageHeight = document.documentElement.scrollHeight
+    //     var footerH = footer ? footer.offsetHeight : 0
+    //     var h = pageHeight - logTop - footerH - LOG_BOTTOM_GAP
+
+    //     logEl.style.height = Math.max(h, 200) + 'px'
+    // },
+
     _fitHeight: function () {
         var logEl = document.getElementById('dnsproxy-log')
+        var wrap = document.getElementById('dnsproxy-log-wrap')
         var footer = document.querySelector('footer.mobile-hide')
-        if (!logEl) return
+        if (!logEl || !wrap) return
 
-        var logTop = logEl.getBoundingClientRect().top + window.scrollY
-        var pageHeight = document.documentElement.scrollHeight
+        var wrapTop = wrap.getBoundingClientRect().top
         var footerH = footer ? footer.offsetHeight : 0
-        var h = pageHeight - logTop - footerH - LOG_BOTTOM_GAP
+        // Всё пространство от верха wrap до верха footer
+        var available = window.innerHeight - wrapTop - footerH - LOG_BOTTOM_GAP
+        // Вычитаем всё что занимает wrap кроме самого лога
+        var overhead = wrap.offsetHeight - logEl.offsetHeight
 
-        logEl.style.height = Math.max(h, 200) + 'px'
+        logEl.style.height = Math.max(available - overhead, 200) + 'px'
     },
 
     _isAtBottom: function (el) {
@@ -550,7 +566,7 @@ return view.extend({
             'div',
             {
                 class: 'cbi-section',
-                style: 'padding:0;margin:1rem 0 0;background:none;',
+                style: 'padding:0;margin:1rem 0 0;background:none;box-shadow: none;',
             },
             [E('div', { id: 'dnsproxy-log-wrap' }, [toolbar, logEl])],
         )
