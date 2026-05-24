@@ -14,6 +14,7 @@ var LEVELS = ['ALL', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 // Здесь только начальное значение чтобы не было прыжка при старте.
 var LOG_CSS =
     '\
+.container { margin-bottom: 0 !important; }\    
 #dnsproxy-log {\
   font-family: "JetBrains Mono", Consolas, Monaco, monospace;\
   font-size: 13px;\
