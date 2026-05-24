@@ -93,7 +93,7 @@ var LOG_CSS =
 .dpl-lvl.lvl-warn  { color: #f0a030; background: #f0a0301a; }\
 .dpl-lvl.lvl-error { color: #ff6b6b; background: #ff6b6b1a; }\
 .dpl-lvl.lvl-fatal { color: #c792ea; background: #c792ea1a; }\
-.dpl-msg { flex: 1; min-width: 0; word-break: break-all; color: #cdd6f4; }\
+.dpl-msg { flex: 1; min-width: 0; white-space: nowrap; color: #cdd6f4; }\
 .dpl-kv-val { color: #e8a87c; }\
 .dpl-dump-toggle {\
   color: #7ec8a0;\
