@@ -4,14 +4,15 @@
 'require ui'
 
 var LOG_LINES = 500
-var POLL_INTERVAL = 10000 // ms
+var POLL_INTERVAL = 10000
 
 var LEVELS = ['ALL', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL']
 
 // ── CSS ───────────────────────────────────────────────────────────────────────
-// Единственное место где правятся цвета и отступы.
 var LOG_CSS =
     '\
+/* скрываем footer чтобы он не ломал высоту */\
+footer.mobile-hide { display: none !important; }\
 #dnsproxy-log {\
   font-family: "JetBrains Mono", Consolas, Monaco, monospace;\
   font-size: 13px;\
@@ -20,8 +21,8 @@ var LOG_CSS =
   color: #c9d1d9;\
   padding: 10px 14px;\
   border-radius: 0 0 6px 6px;\
-  height: calc(100vh - 180px);\
-  min-height: 400px;\
+  height: calc(100vh - 110px);\
+  min-height: 300px;\
   overflow-y: auto;\
   box-sizing: border-box;\
 }\
@@ -29,17 +30,26 @@ var LOG_CSS =
   display: flex;\
   align-items: center;\
   gap: 8px;\
-  padding: 6px 10px;\
+  padding: 5px 10px;\
   background: #161b22;\
   border: 1px solid #30363d;\
   border-bottom: none;\
   border-radius: 6px 6px 0 0;\
   flex-wrap: wrap;\
 }\
+#dnsproxy-toolbar-title {\
+  color: #e6edf3;\
+  font-weight: 600;\
+  font-size: 13px;\
+  margin-right: 4px;\
+  white-space: nowrap;\
+}\
 #dnsproxy-log-wrap {\
   border: 1px solid #30363d;\
   border-radius: 6px;\
 }\
+/* блок-обёртка строки + dump-body — block, не flex */\
+.dpl-entry { display: block; }\
 .dpl-row {\
   display: flex;\
   gap: 8px;\
@@ -58,8 +68,8 @@ var LOG_CSS =
   user-select: none;\
   color: #444c56;\
 }\
-.dpl-ts .ts-time  { color: #768390; }\
-.dpl-ts.ts-same   { color: #232830; }\
+.dpl-ts .ts-time { color: #768390; }\
+.dpl-ts.ts-same  { color: #232830; }\
 .dpl-pid {\
   display: inline-block;\
   width: 6ch;\
@@ -88,10 +98,12 @@ var LOG_CSS =
   color: #7ec8a0;\
   cursor: pointer;\
   border-bottom: 1px dashed #7ec8a066;\
+  user-select: none;\
 }\
+/* dump-body — снаружи flex-строки, выровнен отступом */\
 .dpl-dump-body {\
   display: none;\
-  margin: 3px 0 4px 43ch;\
+  margin: 2px 0 4px calc(26ch + 6ch + 5ch + 24px);\
   padding: 6px 10px;\
   background: #161b22;\
   border: 1px solid #21262d;\
@@ -101,6 +113,7 @@ var LOG_CSS =
   line-height: 1.7;\
   white-space: pre;\
 }\
+.dpl-dump-body.open { display: block; }\
 .dpl-unmatched { color: #5a6473; padding: 1px 0; }\
 .dpl-filter-btn {\
   font-size: 11px;\
@@ -125,18 +138,18 @@ var LOG_CSS =
 }\
 .dpl-ctrl-btn.paused { border-color: #f0a03066; color: #f0a030; }\
 .dpl-ctrl-btn.follow { border-color: #58c4dd66; color: #58c4dd; }\
-#dnsproxy-status-dot {\
+#dnsproxy-status-line {\
   font-size: 11px;\
-  color: #5a6473;\
+  color: #444c56;\
   margin-left: auto;\
   user-select: none;\
+  white-space: nowrap;\
 }'
 
 // ── Парсинг ───────────────────────────────────────────────────────────────────
 var LINE_RE =
     /^(?:\w{3} \w{3} +\d+ [\d:]+ \d{4})\s+[\w.]+\s+dnsproxy\[(\d+)\]:\s+([\d/]+ [\d:.]+)\s+(DEBUG|INFO|WARN|ERROR|FATAL)\s(.*)$/
 var WIRE_RE = /^(?:in|out)\s+prefix=\S+\s+line_num=(\d+)\s+line="(.*)"$/
-// Подсвечиваем значения после конкретных ключей
 var KV_RE = /\b(addr|upstream|raddr)=(\S+)/g
 
 function parseLine(raw) {
@@ -145,22 +158,14 @@ function parseLine(raw) {
     return { pid: m[1], ts: m[2], level: m[3], msg: m[4] }
 }
 
-function getLineLevel(raw) {
-    var m = raw.match(
-        /\]\s*:\s*[\d/]+ [\d:.]+\s+(DEBUG|INFO|WARN|ERROR|FATAL)\b/,
-    )
-    return m ? m[1] : 'INFO'
-}
-
-// ── Группировка wire-dump ─────────────────────────────────────────────────────
+// ── Группировка ───────────────────────────────────────────────────────────────
 function groupLines(parsed) {
     var groups = []
     var dumpBuf = null
-
     parsed.forEach(function (p) {
         var wire = p.level === 'DEBUG' ? p.msg.match(WIRE_RE) : null
         if (wire) {
-            var dir = p.msg.startsWith('in') ? 'in' : 'out'
+            var dir = p.msg.slice(0, 2) === 'in' ? 'in' : 'out'
             if (!dumpBuf || dumpBuf.dir !== dir) {
                 dumpBuf = {
                     isDump: true,
@@ -168,6 +173,7 @@ function groupLines(parsed) {
                     ts: p.ts,
                     dir: dir,
                     lines: [],
+                    key: p.ts + dir,
                 }
                 groups.push(dumpBuf)
             }
@@ -182,14 +188,14 @@ function groupLines(parsed) {
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function makeTsEl(ts, prevTs) {
-    var sameSecond = prevTs && prevTs.slice(0, 19) === ts.slice(0, 19)
-    var el = E('span', { class: 'dpl-ts' + (sameSecond ? ' ts-same' : '') })
-    if (sameSecond) {
+    var same = prevTs && prevTs.slice(0, 19) === ts.slice(0, 19)
+    var el = E('span', { class: 'dpl-ts' + (same ? ' ts-same' : '') })
+    if (same) {
         el.textContent = ts.slice(19)
     } else {
-        el.appendChild(E('span', {}, ts.slice(0, 11))) // "2026/05/23 "
-        el.appendChild(E('span', { class: 'ts-time' }, ts.slice(11, 19))) // "17:30:34"
-        el.appendChild(E('span', {}, ts.slice(19))) // ".110882"
+        el.appendChild(document.createTextNode(ts.slice(0, 11)))
+        el.appendChild(E('span', { class: 'ts-time' }, ts.slice(11, 19)))
+        el.appendChild(document.createTextNode(ts.slice(19)))
     }
     return el
 }
@@ -208,38 +214,36 @@ function makeLvlEl(level) {
     return E('span', { class: 'dpl-lvl lvl-' + level.toLowerCase() }, level)
 }
 
-// Подсвечивает значения addr=, upstream=, raddr=
 function makeMsgEl(msg) {
     var el = E('span', { class: 'dpl-msg' })
-    var lastIndex = 0
     var re = new RegExp(KV_RE.source, 'g')
+    var last = 0
     var m
     while ((m = re.exec(msg)) !== null) {
-        if (m.index > lastIndex)
-            el.appendChild(
-                document.createTextNode(msg.slice(lastIndex, m.index)),
-            )
+        if (m.index > last)
+            el.appendChild(document.createTextNode(msg.slice(last, m.index)))
         el.appendChild(document.createTextNode(m[1] + '='))
         el.appendChild(E('span', { class: 'dpl-kv-val' }, m[2]))
-        lastIndex = m.index + m[0].length
+        last = m.index + m[0].length
     }
-    if (lastIndex < msg.length)
-        el.appendChild(document.createTextNode(msg.slice(lastIndex)))
+    if (last < msg.length)
+        el.appendChild(document.createTextNode(msg.slice(last)))
     return el
 }
 
 function buildNormalRow(p, prevTs, prevPid) {
-    var row = E('div', { class: 'dpl-row lvl-' + p.level.toLowerCase() }, [
-        makeTsEl(p.ts, prevTs),
-        makePidEl(p.pid, prevPid),
-        makeLvlEl(p.level),
-        makeMsgEl(p.msg),
+    return E('div', { class: 'dpl-entry' }, [
+        E('div', { class: 'dpl-row lvl-' + p.level.toLowerCase() }, [
+            makeTsEl(p.ts, prevTs),
+            makePidEl(p.pid, prevPid),
+            makeLvlEl(p.level),
+            makeMsgEl(p.msg),
+        ]),
     ])
-    return row
 }
 
-function buildDumpRow(group, prevTs, prevPid) {
-    // ▲ query = запрос идёт вверх к серверу; ▼ reply = ответ приходит вниз
+// openKeys — Set-образный объект { key: true } с ключами открытых dump-блоков
+function buildDumpRow(group, prevTs, prevPid, openKeys) {
     var isIn = group.dir === 'in'
     var arrow = isIn ? '▲' : '▼'
     var label =
@@ -249,33 +253,58 @@ function buildDumpRow(group, prevTs, prevPid) {
         ' (' +
         group.lines.length +
         ' lines)'
+    var isOpen = openKeys && openKeys[group.key]
 
-    var body = E('div', { class: 'dpl-dump-body' }, group.lines.join('\n'))
+    var body = E(
+        'div',
+        { class: 'dpl-dump-body' + (isOpen ? ' open' : '') },
+        group.lines.join('\n'),
+    )
 
     var toggle = E(
         'span',
         {
             class: 'dpl-dump-toggle',
             click: function () {
-                var open = body.style.display === 'block'
-                body.style.display = open ? '' : 'block'
-                toggle.textContent = label + (open ? '' : ' ▸ collapse')
+                var open = body.classList.contains('open')
+                if (open) {
+                    body.classList.remove('open')
+                    toggle.textContent = label
+                } else {
+                    body.classList.add('open')
+                    toggle.textContent = label + ' ▸ collapse'
+                }
             },
         },
-        label,
+        isOpen ? label + ' ▸ collapse' : label,
     )
 
-    return E('div', { class: 'dpl-row' }, [
-        makeTsEl(group.ts, prevTs),
-        makePidEl(group.pid, prevPid),
-        makeLvlEl('DEBUG'),
-        E('span', { class: 'dpl-msg' }, [toggle]),
+    return E('div', { class: 'dpl-entry', 'data-dumpkey': group.key }, [
+        E('div', { class: 'dpl-row' }, [
+            makeTsEl(group.ts, prevTs),
+            makePidEl(group.pid, prevPid),
+            makeLvlEl('DEBUG'),
+            E('span', { class: 'dpl-msg' }, [toggle]),
+        ]),
         body,
     ])
 }
 
 // ── Заполнение контейнера ─────────────────────────────────────────────────────
-function fillLog(container, text, levelFilter) {
+function fillLog(container, text, levelFilter, openKeys) {
+    // Запоминаем открытые блоки ДО очистки
+    if (!openKeys) {
+        openKeys = {}
+        container
+            .querySelectorAll('.dpl-dump-body.open')
+            .forEach(function (el) {
+                var key =
+                    el.parentElement &&
+                    el.parentElement.getAttribute('data-dumpkey')
+                if (key) openKeys[key] = true
+            })
+    }
+
     while (container.firstChild) container.removeChild(container.firstChild)
 
     var parsed = []
@@ -294,7 +323,9 @@ function fillLog(container, text, levelFilter) {
         container.appendChild(
             E(
                 'div',
-                { style: 'color:#5a6473;padding:20px;text-align:center' },
+                {
+                    style: 'color:#5a6473;padding:20px;text-align:center',
+                },
                 _('No messages.') +
                     (levelFilter !== 'ALL'
                         ? ' (filter: ' + levelFilter + ')'
@@ -313,7 +344,7 @@ function fillLog(container, text, levelFilter) {
         if (g.raw) {
             row = E('div', { class: 'dpl-unmatched' }, g.raw)
         } else if (g.isDump) {
-            row = buildDumpRow(g, prevTs, prevPid)
+            row = buildDumpRow(g, prevTs, prevPid, openKeys)
             prevTs = g.ts
             prevPid = g.pid
         } else {
@@ -352,7 +383,7 @@ return view.extend({
     _timer: null,
     _followBtn: null,
     _pauseBtn: null,
-    _statusDot: null,
+    _statusEl: null,
 
     load: function () {
         return fetchLog()
@@ -367,6 +398,7 @@ return view.extend({
         if (!el) return
         var atBottom = this._isAtBottom(el)
         var savedTop = el.scrollTop
+        // openKeys собирается внутри fillLog до очистки
         fillLog(el, this._lastRaw, this._filter)
         el.scrollTop = atBottom ? el.scrollHeight : savedTop
         this._updateFollow(el)
@@ -374,8 +406,11 @@ return view.extend({
 
     _updateFollow: function (el) {
         if (!this._followBtn) return
-        var hidden = this._isAtBottom(el)
-        this._followBtn.style.display = hidden ? 'none' : ''
+        this._followBtn.style.display = this._isAtBottom(el) ? 'none' : ''
+    },
+
+    _setStatus: function (txt) {
+        if (this._statusEl) this._statusEl.textContent = txt
     },
 
     _scheduleRefresh: function () {
@@ -385,10 +420,14 @@ return view.extend({
         self._timer = setTimeout(function () {
             fetchLog().then(function (log) {
                 self._lastRaw = log
-                if (self._statusDot)
-                    self._statusDot.textContent =
-                        _('updated') + ' ' + new Date().toLocaleTimeString()
                 self._rebuild()
+                // Показываем footer-текст вместо обычного footer
+                var footer = document.querySelector('footer.mobile-hide')
+                self._setStatus(
+                    footer
+                        ? footer.textContent.trim().replace(/\s+/g, ' ')
+                        : new Date().toLocaleTimeString(),
+                )
                 self._scheduleRefresh()
             })
         }, POLL_INTERVAL)
@@ -398,7 +437,7 @@ return view.extend({
         var self = this
         self._lastRaw = log
 
-        // Инжект CSS один раз
+        // CSS один раз
         if (!document.getElementById('dnsproxy-log-css')) {
             var style = document.createElement('style')
             style.id = 'dnsproxy-log-css'
@@ -433,7 +472,6 @@ return view.extend({
             )
         })
 
-        // Pause/Resume
         var pauseBtn = E(
             'button',
             {
@@ -441,18 +479,17 @@ return view.extend({
                 click: function () {
                     self._paused = !self._paused
                     pauseBtn.textContent = self._paused
-                        ? _('▶ Resume')
-                        : _('⏸ Pause')
+                        ? '▶ ' + _('Resume')
+                        : '⏸ ' + _('Pause')
                     pauseBtn.className =
                         'dpl-ctrl-btn' + (self._paused ? ' paused' : '')
                     if (!self._paused) self._scheduleRefresh()
                 },
             },
-            _('⏸ Pause'),
+            '⏸ ' + _('Pause'),
         )
         self._pauseBtn = pauseBtn
 
-        // Follow (появляется когда скролл не внизу)
         var followBtn = E(
             'button',
             {
@@ -460,44 +497,45 @@ return view.extend({
                 style: 'display:none',
                 click: function () {
                     var el = document.getElementById('dnsproxy-log')
-                    if (el) {
-                        el.scrollTop = el.scrollHeight
-                    }
+                    if (el) el.scrollTop = el.scrollHeight
                     followBtn.style.display = 'none'
                 },
             },
-            _('↓ Follow'),
+            '↓ ' + _('Follow'),
         )
         self._followBtn = followBtn
 
-        var statusDot = E('span', { id: 'dnsproxy-status-dot' }, '')
-        self._statusDot = statusDot
+        var statusEl = E('span', { id: 'dnsproxy-status-line' }, '')
+        self._statusEl = statusEl
+
+        // Подставляем footer-текст сразу
+        requestAnimationFrame(function () {
+            var footer = document.querySelector('footer.mobile-hide')
+            if (footer)
+                self._setStatus(footer.textContent.trim().replace(/\s+/g, ' '))
+        })
 
         var toolbar = E(
             'div',
             { id: 'dnsproxy-toolbar' },
-            filterBtns.concat([pauseBtn, followBtn, statusDot]),
+            [E('span', { id: 'dnsproxy-toolbar-title' }, 'DNS Proxy Syslog')]
+                .concat(filterBtns)
+                .concat([pauseBtn, followBtn, statusEl]),
         )
 
-        // Лог-контейнер
         var logEl = E('div', { id: 'dnsproxy-log' })
-        fillLog(logEl, log, 'ALL')
+        fillLog(logEl, log, 'ALL', {})
 
-        // Отслеживаем скролл для Follow и автопрокрутки
         logEl.addEventListener('scroll', function () {
             self._updateFollow(logEl)
         })
-
-        // Скролл вниз при первом рендере
         requestAnimationFrame(function () {
             logEl.scrollTop = logEl.scrollHeight
         })
 
-        // Запуск авто-обновления
         self._scheduleRefresh()
 
-        return E('div', { class: 'cbi-section', style: 'padding:0' }, [
-            E('h3', { style: 'padding:0 0 8px' }, _('DNS Proxy: System Log')),
+        return E('div', { class: 'cbi-section', style: 'padding:0;margin:0' }, [
             E('div', { id: 'dnsproxy-log-wrap' }, [toolbar, logEl]),
         ])
     },
