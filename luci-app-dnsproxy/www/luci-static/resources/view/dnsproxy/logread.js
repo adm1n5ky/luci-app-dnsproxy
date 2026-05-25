@@ -416,22 +416,6 @@ return view.extend({
         logEl.style.height = Math.max(available - overhead, 200) + 'px'
     },
 
-    // _fitHeight: function () {
-    //     var logEl = document.getElementById('dnsproxy-log')
-    //     var wrap = document.getElementById('dnsproxy-log-wrap')
-    //     var footer = document.querySelector('footer.mobile-hide')
-    //     if (!logEl || !wrap) return
-
-    //     var wrapTop = wrap.getBoundingClientRect().top
-    //     var footerH = footer ? footer.offsetHeight : 0
-    //     // Всё пространство от верха wrap до верха footer
-    //     var available = window.innerHeight - wrapTop - footerH - LOG_BOTTOM_GAP
-    //     // Вычитаем всё что занимает wrap кроме самого лога
-    //     var overhead = wrap.offsetHeight - logEl.offsetHeight
-
-    //     logEl.style.height = Math.max(available - overhead, 200) + 'px'
-    // },
-
     _isAtBottom: function (el) {
         return el.scrollTop + el.clientHeight >= el.scrollHeight - 6
     },
