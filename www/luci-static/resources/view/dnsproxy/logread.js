@@ -395,19 +395,12 @@ return view.extend({
         if (!logEl || !wrap) return
 
         var wrapTop = wrap.getBoundingClientRect().top
+        var footerH = footer ? footer.offsetHeight : 0
         var overhead = wrap.offsetHeight - logEl.offsetHeight
 
-        var available
-        if (footer) {
-            var footerTop = footer.getBoundingClientRect().top
-            available =
-                Math.min(footerTop, window.innerHeight) -
-                wrapTop -
-                LOG_BOTTOM_GAP
-        } else {
-            available = window.innerHeight - wrapTop - LOG_BOTTOM_GAP
-        }
-
+        // footer.offsetHeight не зависит от позиции footer на странице —
+        // нет замкнутого круга когда overflow:auto скрывает контент лога
+        var available = window.innerHeight - wrapTop - footerH - LOG_BOTTOM_GAP
         logEl.style.height = Math.max(available - overhead, 200) + 'px'
     },
 
