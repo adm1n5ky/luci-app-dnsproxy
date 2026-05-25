@@ -3,6 +3,7 @@
 *.htm
 *.html
 po2lmo
+*.apk
 
 # Файлы локализации
 *.pot
