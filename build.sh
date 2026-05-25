@@ -5,7 +5,6 @@ PKG_NAME="luci-app-dnsproxy"
 PKG_VERSION="${1:-0.1.0}"
 PKG_RELEASE="1"
 PKG_ARCH="all"
-PKG_DEPENDS="luci-base dnsproxy luci-mod-status"
 PKG_DESCRIPTION="LuCI web interface for AdGuard DNS Proxy. Supports DoT, DoH, DoQ, DNSCrypt."
 PKG_MAINTAINER="NumLock"
 PKG_LICENSE="Apache-2.0"
@@ -17,7 +16,6 @@ OUT_DIR="${SCRIPT_DIR}/dist"
 
 echo "==> Building ${PKG_NAME}-${PKG_VERSION}-r${PKG_RELEASE}-${PKG_ARCH}.apk"
 
-# Чистим предыдущую сборку
 rm -rf "${BUILD_DIR}"
 mkdir -p "${PKG_DIR}"
 mkdir -p "${OUT_DIR}"
@@ -26,11 +24,11 @@ mkdir -p "${OUT_DIR}"
 cp -r "${SCRIPT_DIR}/usr" "${PKG_DIR}/"
 cp -r "${SCRIPT_DIR}/www" "${PKG_DIR}/"
 
-# Считаем размер
-PKG_SIZE=$(du -sk "${PKG_DIR}" | cut -f1)
+# Считаем размер в байтах
+PKG_SIZE=$(du -sb "${PKG_DIR}" 2>/dev/null | cut -f1 || du -sk "${PKG_DIR}" | awk '{print $1*1024}')
 
-# Создаём APKBUILD-совместимый .PKGINFO
-cat > "${BUILD_DIR}/.PKGINFO" << PKGINFO
+# Создаём .PKGINFO
+cat > "${PKG_DIR}/.PKGINFO" << PKGINFO
 pkgname = ${PKG_NAME}
 pkgver = ${PKG_VERSION}-r${PKG_RELEASE}
 arch = ${PKG_ARCH}
@@ -45,14 +43,11 @@ depend = dnsproxy
 depend = luci-mod-status
 PKGINFO
 
-# Создаём tar с файлами пакета
+# Собираем apk: .PKGINFO первым, затем все файлы — всё в одном tar.gz
 cd "${PKG_DIR}"
-tar -czf "${BUILD_DIR}/data.tar.gz" usr/ www/
-
-# Создаём финальный apk (это tar.gz из .PKGINFO + data.tar.gz)
-cd "${BUILD_DIR}"
 tar -czf "${OUT_DIR}/${PKG_NAME}-${PKG_VERSION}-r${PKG_RELEASE}-${PKG_ARCH}.apk" \
     .PKGINFO \
-    data.tar.gz
+    usr/ \
+    www/
 
 echo "==> Done: dist/${PKG_NAME}-${PKG_VERSION}-r${PKG_RELEASE}-${PKG_ARCH}.apk"
