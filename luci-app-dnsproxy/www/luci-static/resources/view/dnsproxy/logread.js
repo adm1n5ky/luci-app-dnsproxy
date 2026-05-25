@@ -383,37 +383,54 @@ return view.extend({
         return fetchLog()
     },
 
-    // Высота лога = расстояние от верхнего края #dnsproxy-log до нижней
-    // границы страницы минус footer и небольшой отступ.
-    // Вызывается при рендере и по ResizeObserver.
-    // _fitHeight: function () {
-    //     var logEl = document.getElementById('dnsproxy-log')
-    //     var footer = document.querySelector('footer.mobile-hide')
-    //     if (!logEl) return
-
-    //     var logTop = logEl.getBoundingClientRect().top + window.scrollY
-    //     var pageHeight = document.documentElement.scrollHeight
-    //     var footerH = footer ? footer.offsetHeight : 0
-    //     var h = pageHeight - logTop - footerH - LOG_BOTTOM_GAP
-
-    //     logEl.style.height = Math.max(h, 200) + 'px'
-    // },
+    _getFooter: function () {
+        return (
+            document.querySelector('footer.mobile-hide') ||
+            document.querySelector('footer')
+        )
+    },
 
     _fitHeight: function () {
         var logEl = document.getElementById('dnsproxy-log')
         var wrap = document.getElementById('dnsproxy-log-wrap')
-        var footer = document.querySelector('footer.mobile-hide')
+        var footer = this._getFooter()
         if (!logEl || !wrap) return
 
         var wrapTop = wrap.getBoundingClientRect().top
-        var footerH = footer ? footer.offsetHeight : 0
-        // Всё пространство от верха wrap до верха footer
-        var available = window.innerHeight - wrapTop - footerH - LOG_BOTTOM_GAP
-        // Вычитаем всё что занимает wrap кроме самого лога
         var overhead = wrap.offsetHeight - logEl.offsetHeight
+
+        // Для static footer: доступное место = от верха wrap до верха footer
+        // Для отсутствующего footer: до низа viewport
+        var available
+        if (footer) {
+            // footerTop относительно viewport — может быть > innerH если footer не виден
+            var footerTop = footer.getBoundingClientRect().top
+            available =
+                Math.min(footerTop, window.innerHeight) -
+                wrapTop -
+                LOG_BOTTOM_GAP
+        } else {
+            available = window.innerHeight - wrapTop - LOG_BOTTOM_GAP
+        }
 
         logEl.style.height = Math.max(available - overhead, 200) + 'px'
     },
+
+    // _fitHeight: function () {
+    //     var logEl = document.getElementById('dnsproxy-log')
+    //     var wrap = document.getElementById('dnsproxy-log-wrap')
+    //     var footer = document.querySelector('footer.mobile-hide')
+    //     if (!logEl || !wrap) return
+
+    //     var wrapTop = wrap.getBoundingClientRect().top
+    //     var footerH = footer ? footer.offsetHeight : 0
+    //     // Всё пространство от верха wrap до верха footer
+    //     var available = window.innerHeight - wrapTop - footerH - LOG_BOTTOM_GAP
+    //     // Вычитаем всё что занимает wrap кроме самого лога
+    //     var overhead = wrap.offsetHeight - logEl.offsetHeight
+
+    //     logEl.style.height = Math.max(available - overhead, 200) + 'px'
+    // },
 
     _isAtBottom: function (el) {
         return el.scrollTop + el.clientHeight >= el.scrollHeight - 6
