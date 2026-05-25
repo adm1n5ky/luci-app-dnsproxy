@@ -394,14 +394,20 @@ return view.extend({
         var footer = this._getFooter()
         if (!logEl || !wrap) return
 
-        var wrapAbsTop = wrap.getBoundingClientRect().top + window.scrollY
-        var footerAbsTop = footer
-            ? footer.getBoundingClientRect().top + window.scrollY
-            : document.documentElement.scrollHeight
-        // overhead = toolbar + borders — всё в wrap кроме самого лога
+        var wrapTop = wrap.getBoundingClientRect().top
         var overhead = wrap.offsetHeight - logEl.offsetHeight
 
-        var available = footerAbsTop - wrapAbsTop - LOG_BOTTOM_GAP
+        var available
+        if (footer) {
+            var footerTop = footer.getBoundingClientRect().top
+            available =
+                Math.min(footerTop, window.innerHeight) -
+                wrapTop -
+                LOG_BOTTOM_GAP
+        } else {
+            available = window.innerHeight - wrapTop - LOG_BOTTOM_GAP
+        }
+
         logEl.style.height = Math.max(available - overhead, 200) + 'px'
     },
 
@@ -524,28 +530,23 @@ return view.extend({
                 .concat([pauseBtn, followBtn, statusEl]),
         )
 
-        // logEl создаём пустым — fillLog вызывается внутри requestAnimationFrame
-        // уже после вставки в DOM, чтобы _fitHeight замерял корректный layout
+        // fillLog до rAF — страница вырастает до финального размера
         var logEl = E('div', { id: 'dnsproxy-log' })
+        fillLog(logEl, log, 'ALL', {})
 
         logEl.addEventListener('scroll', function () {
             self._updateFollow(logEl)
         })
 
         requestAnimationFrame(function () {
-            // 1. Заполняем лог — страница вырастает до финального размера
-            fillLog(logEl, self._lastRaw, self._filter, {})
-            // 2. Теперь footer на своём настоящем месте — замеряем
+            // footer уже на своём месте — замеряем корректно
             self._fitHeight()
-            // 3. Прокручиваем вниз
             logEl.scrollTop = logEl.scrollHeight
 
-            // Пересчитываем высоту при изменении размера окна
             window.addEventListener('resize', function () {
                 self._fitHeight()
             })
 
-            // ResizeObserver на footer — работает в любой теме
             var footer = self._getFooter()
             if (footer && window.ResizeObserver) {
                 self._resizeObs = new ResizeObserver(function () {
