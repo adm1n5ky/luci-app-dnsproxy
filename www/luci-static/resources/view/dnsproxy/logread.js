@@ -388,26 +388,46 @@ return view.extend({
         )
     },
 
+    // _fitHeight: function () {
+    //     var logEl = document.getElementById('dnsproxy-log')
+    //     var wrap = document.getElementById('dnsproxy-log-wrap')
+    //     var footer = this._getFooter()
+    //     if (!logEl || !wrap) return
+
+    //     var wrapTop = wrap.getBoundingClientRect().top
+    //     var overhead = wrap.offsetHeight - logEl.offsetHeight
+
+    //     var available
+    //     if (footer) {
+    //         var footerTop = footer.getBoundingClientRect().top
+    //         available =
+    //             Math.min(footerTop, window.innerHeight) -
+    //             wrapTop -
+    //             LOG_BOTTOM_GAP
+    //     } else {
+    //         available = window.innerHeight - wrapTop - LOG_BOTTOM_GAP
+    //     }
+
+    //     logEl.style.height = Math.max(available - overhead, 200) + 'px'
+    // },
+
     _fitHeight: function () {
         var logEl = document.getElementById('dnsproxy-log')
         var wrap = document.getElementById('dnsproxy-log-wrap')
         var footer = this._getFooter()
         if (!logEl || !wrap) return
 
-        var wrapTop = wrap.getBoundingClientRect().top
+        // Сбрасываем высоту чтобы страница сжалась до естественного размера —
+        // иначе старая высота лога сама удерживает footer внизу и замер врёт
+        logEl.style.height = '0px'
+
+        var wrapAbsTop = wrap.getBoundingClientRect().top + window.scrollY
+        var footerAbsTop = footer
+            ? footer.getBoundingClientRect().top + window.scrollY
+            : document.documentElement.scrollHeight
         var overhead = wrap.offsetHeight - logEl.offsetHeight
 
-        var available
-        if (footer) {
-            var footerTop = footer.getBoundingClientRect().top
-            available =
-                Math.min(footerTop, window.innerHeight) -
-                wrapTop -
-                LOG_BOTTOM_GAP
-        } else {
-            available = window.innerHeight - wrapTop - LOG_BOTTOM_GAP
-        }
-
+        var available = footerAbsTop - wrapAbsTop - LOG_BOTTOM_GAP
         logEl.style.height = Math.max(available - overhead, 200) + 'px'
     },
 
