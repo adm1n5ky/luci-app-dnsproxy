@@ -317,9 +317,7 @@ function fillLog(container, text, levelFilter, openKeys) {
         container.appendChild(
             E(
                 'div',
-                {
-                    style: 'color:#5a6473;padding:20px;text-align:center',
-                },
+                { style: 'color:#5a6473;padding:20px;text-align:center' },
                 _('No messages.') +
                     (levelFilter !== 'ALL'
                         ? ' (filter: ' + levelFilter + ')'
@@ -399,11 +397,8 @@ return view.extend({
         var wrapTop = wrap.getBoundingClientRect().top
         var overhead = wrap.offsetHeight - logEl.offsetHeight
 
-        // Для static footer: доступное место = от верха wrap до верха footer
-        // Для отсутствующего footer: до низа viewport
         var available
         if (footer) {
-            // footerTop относительно viewport — может быть > innerH если footer не виден
             var footerTop = footer.getBoundingClientRect().top
             available =
                 Math.min(footerTop, window.innerHeight) -
@@ -542,18 +537,26 @@ return view.extend({
             self._updateFollow(logEl)
         })
 
-        // После вставки в DOM: подогнать высоту, прокрутить вниз
+        // После вставки в DOM: подогнать высоту, прокрутить вниз.
+        // requestAnimationFrame гарантирует первый paint, но шрифты и
+        // LuCI-обёртки могут ещё не устояться — делаем второй замер через
+        // 300 ms когда layout точно стабилен.
         requestAnimationFrame(function () {
             self._fitHeight()
             logEl.scrollTop = logEl.scrollHeight
+
+            setTimeout(function () {
+                self._fitHeight()
+            }, 300)
 
             // Пересчитываем высоту при изменении размера окна
             window.addEventListener('resize', function () {
                 self._fitHeight()
             })
 
-            // ResizeObserver на footer — пересчитываем если footer меняет высоту
-            var footer = document.querySelector('footer.mobile-hide')
+            // ResizeObserver — реагируем на изменение высоты footer
+            // (используем _getFooter чтобы работало в любой теме)
+            var footer = self._getFooter()
             if (footer && window.ResizeObserver) {
                 self._resizeObs = new ResizeObserver(function () {
                     self._fitHeight()
