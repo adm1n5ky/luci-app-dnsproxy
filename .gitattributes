@@ -4,3 +4,4 @@ build.sh export-ignore
 ENVIRONMENT.md export-ignore
 Makefile export-ignore
 LICENSE export-ignore
+README.md export-ignore
