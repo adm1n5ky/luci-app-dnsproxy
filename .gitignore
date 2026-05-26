@@ -33,6 +33,7 @@ build.sh
 *.rej
 .*.sw?
 node_modules/
+ENVIRONMENT.md
 
 # Файлы IDE
 .vscode/
