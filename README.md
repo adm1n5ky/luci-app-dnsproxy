@@ -14,6 +14,14 @@
 ### About upstream project:
 > **AdGuard DNS Proxy** is a simple DNS proxy server that supports all existing DNS protocols including DNS-over-TLS, DNS-over-HTTPS, DNSCrypt, and DNS-over-QUIC. Moreover, it can work as a DNS-over-HTTPS, DNS-over-TLS or DNS-over-QUIC server.
 
+### Install via SSH
+
+```sh
+wget -O /tmp/luci-app-dnsproxy.apk \
+  https://github.com/adm1n5ky/luci-app-dnsproxy/releases/download/v0.1.0/luci-app-dnsproxy-0.1.0-r1.apk
+apk add --allow-untrusted /tmp/luci-app-dnsproxy.apk
+service rpcd restart
+```
 ---
 
 <a id="русский"></a>
