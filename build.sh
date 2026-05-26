@@ -25,6 +25,7 @@ make package/$PKG_NAME/compile V=s 2>&1 | tail -10
 
 echo "==> Copying result to dist/..."
 mkdir -p "$OUT_DIR"
+rm -f "$OUT_DIR"/*.apk
 cp "$SDK_DIR/bin/packages/x86_64/base/$PKG_NAME"*.apk "$OUT_DIR/"
 
 echo "==> Done:"
