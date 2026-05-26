@@ -3,51 +3,29 @@ set -e
 
 PKG_NAME="luci-app-dnsproxy"
 PKG_VERSION="${1:-0.1.0}"
-PKG_RELEASE="r1"
-PKG_ARCH="all"
-PKG_DESCRIPTION="LuCI web interface for AdGuard DNS Proxy. Supports DoT, DoH, DoQ, DNSCrypt."
-PKG_MAINTAINER="NumLock"
-PKG_LICENSE="Apache-2.0"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="${SCRIPT_DIR}/.build"
-PKG_DIR="${BUILD_DIR}/pkg"
-OUT_DIR="${SCRIPT_DIR}/dist"
+# Укажите путь к SDK или создайте симлинк:
+# ln -s ~/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64 ~/openwrt-sdk
+SDK_DIR="$HOME/openwrt-sdk"
 
-echo "==> Building ${PKG_NAME}-${PKG_VERSION}-r${PKG_RELEASE}-${PKG_ARCH}.apk"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+PKG_DIR="$SDK_DIR/package/$PKG_NAME"
+OUT_DIR="$REPO_DIR/dist"
 
-rm -rf "${BUILD_DIR}"
-mkdir -p "${PKG_DIR}"
-mkdir -p "${OUT_DIR}"
+echo "==> Pulling latest changes..."
+cd "$REPO_DIR" && git pull
 
-# Копируем файлы пакета
-cp -r "${SCRIPT_DIR}/usr" "${PKG_DIR}/"
-cp -r "${SCRIPT_DIR}/www" "${PKG_DIR}/"
+echo "==> Syncing files to SDK..."
+rm -rf "$PKG_DIR"
+cp -r "$REPO_DIR" "$PKG_DIR"
 
-# Считаем размер в байтах
-PKG_SIZE=$(du -sb "${PKG_DIR}" 2>/dev/null | cut -f1 || du -sk "${PKG_DIR}" | awk '{print $1*1024}')
+echo "==> Building $PKG_NAME-$PKG_VERSION..."
+cd "$SDK_DIR"
+make package/$PKG_NAME/compile V=s 2>&1 | tail -10
 
-# Создаём .PKGINFO
-cat > "${PKG_DIR}/.PKGINFO" << PKGINFO
-pkgname = ${PKG_NAME}
-pkgver = ${PKG_VERSION}-r${PKG_RELEASE}
-arch = ${PKG_ARCH}
-size = ${PKG_SIZE}
-pkgdesc = ${PKG_DESCRIPTION}
-url = https://github.com/adm1n5ky/${PKG_NAME}
-builddate = $(date +%s)
-packager = ${PKG_MAINTAINER}
-license = ${PKG_LICENSE}
-depend = luci-base
-depend = dnsproxy
-depend = luci-mod-status
-PKGINFO
+echo "==> Copying result to dist/..."
+mkdir -p "$OUT_DIR"
+cp "$SDK_DIR/bin/packages/x86_64/base/$PKG_NAME"*.apk "$OUT_DIR/"
 
-# Собираем apk: .PKGINFO первым, затем все файлы — всё в одном tar.gz
-cd "${PKG_DIR}"
-tar -czf "${OUT_DIR}/${PKG_NAME}-${PKG_VERSION}-r${PKG_RELEASE}-${PKG_ARCH}.apk" \
-    .PKGINFO \
-    usr/ \
-    www/
-
-echo "==> Done: dist/${PKG_NAME}-${PKG_VERSION}-r${PKG_RELEASE}-${PKG_ARCH}.apk"
+echo "==> Done:"
+ls "$OUT_DIR/$PKG_NAME"*.apk
