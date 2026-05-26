@@ -1,0 +1,7 @@
+build.sh export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore
+ENVIRONMENT.md export-ignore
+Makefile export-ignore
+LICENSE export-ignore
+README.md export-ignore
