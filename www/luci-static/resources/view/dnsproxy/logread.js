@@ -67,10 +67,10 @@ var LOG_CSS =
   text-align: right;\
   flex-shrink: 0;\
   user-select: none;\
-  color: #444c56;\
+  color: #d1d1d1;\
 }\
-.dpl-ts .ts-time { color: #768390; }\
-.dpl-ts.ts-same  { color: #232830; }\
+.dpl-ts .ts-time { color: #90dc8a; }\
+.dpl-ts.ts-same  { color: #d1d1d166; }\
 .dpl-pid {\
   display: inline-block;\
   width: 6ch;\
@@ -78,7 +78,7 @@ var LOG_CSS =
   flex-shrink: 0;\
   color: #4a5568;\
 }\
-.dpl-pid.pid-same { color: transparent; user-select: none; }\
+.dpl-pid.pid-same { color: #90dc8a5c; user-select: none; }\
 .dpl-lvl {\
   display: inline-block;\
   width: 5ch;\
