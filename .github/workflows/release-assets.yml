@@ -1,0 +1,40 @@
+# .github/workflows/release-assets.yml
+name: Attach release archive
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build archives
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          NAME="luci-app-dnsproxy-${VERSION}"
+
+          ITEMS=$(grep -oP '(?<=!)[^/\s]+[/]?' .gitattributes \
+            | sed 's|/||' \
+            | sort -u \
+            | tr '\n' ' ')
+
+          cd "$GITHUB_WORKSPACE"
+          zip -r   "/tmp/${NAME}.zip"    $ITEMS
+          tar -czf "/tmp/${NAME}.tar.gz" $ITEMS
+
+          echo "ZIP=/tmp/${NAME}.zip"    >> "$GITHUB_ENV"
+          echo "TGZ=/tmp/${NAME}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload archives to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ZIP }}
+            ${{ env.TGZ }}
