@@ -1,7 +1,7 @@
 # luci-app-dnsproxy
 
 🌐 [English](#english) | 🇷🇺 [Русский](#русский)
-
+https://img.shields.io/github/v/release/adm1n5ky/luci-app-dnsproxy
 ---
 
 <a id="english"></a>
