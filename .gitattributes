@@ -1,7 +1,5 @@
-build.sh export-ignore
-.gitignore export-ignore
-.gitattributes export-ignore
-ENVIRONMENT.md export-ignore
-Makefile export-ignore
-LICENSE export-ignore
-README.md export-ignore
+*                   export-ignore
+!usr/share/
+!usr/share/**
+!www/luci-static/resources/
+!www/luci-static/resources/**
