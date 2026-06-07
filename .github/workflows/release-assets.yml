@@ -19,13 +19,12 @@ jobs:
                   TAG="${GITHUB_REF_NAME}"
                   VERSION="${TAG#v}"
                   NAME="luci-app-dnsproxy-${VERSION}"
-
                   ITEMS=$(grep '^!' .gitattributes | sed 's/^!//' | grep -v '\*' | sed 's/\/$//' | sort -u)
-
                   cd "$GITHUB_WORKSPACE"
                   zip -r   "/tmp/${NAME}.zip"    $ITEMS
                   tar -czf "/tmp/${NAME}.tar.gz" $ITEMS
-
+                  echo "TAG=${TAG}"              >> "$GITHUB_ENV"
+                  echo "VERSION=${VERSION}"      >> "$GITHUB_ENV"
                   echo "ZIP=/tmp/${NAME}.zip"    >> "$GITHUB_ENV"
                   echo "TGZ=/tmp/${NAME}.tar.gz" >> "$GITHUB_ENV"
 
@@ -35,3 +34,37 @@ jobs:
                   files: |
                       ${{ env.ZIP }}
                       ${{ env.TGZ }}
+
+            - name: Generate install.md
+              run: |
+                  DATE=$(date -u +"%Y-%m-%d")
+                  cat > install.md << 'EOF'
+                  # Installation
+
+                  > Version: TAG_PLACEHOLDER · DATE_PLACEHOLDER
+
+                  ## Via APK (recommended)
+
+                  ```sh
+                  wget -O /tmp/luci-app-dnsproxy.apk \
+                    https://github.com/adm1n5ky/luci-app-dnsproxy/releases/download/TAG_PLACEHOLDER/luci-app-dnsproxy-VERSION_PLACEHOLDER.apk
+                  apk add --allow-untrusted /tmp/luci-app-dnsproxy.apk
+                  service rpcd restart
+                  ```
+
+                  ## Other formats
+
+                  - [luci-app-dnsproxy-VERSION_PLACEHOLDER.zip](https://github.com/adm1n5ky/luci-app-dnsproxy/releases/download/TAG_PLACEHOLDER/luci-app-dnsproxy-VERSION_PLACEHOLDER.zip)
+                  - [luci-app-dnsproxy-VERSION_PLACEHOLDER.tar.gz](https://github.com/adm1n5ky/luci-app-dnsproxy/releases/download/TAG_PLACEHOLDER/luci-app-dnsproxy-VERSION_PLACEHOLDER.tar.gz)
+                  EOF
+                  sed -i "s/TAG_PLACEHOLDER/${{ env.TAG }}/g" install.md
+                  sed -i "s/VERSION_PLACEHOLDER/${{ env.VERSION }}/g" install.md
+                  sed -i "s/DATE_PLACEHOLDER/${DATE}/g" install.md
+
+            - name: Commit install.md
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add install.md
+                  git commit -m "docs: update install.md for ${{ env.TAG }}"
+                  git push
