@@ -1,7 +1,7 @@
 # luci-app-dnsproxy
+[![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12%20%D1%81%D0%BE%D0%B2%D0%BC%D0%B5%D1%81%D1%82%D0%B8%D0%BC%D0%BE-00B5E2?style=for-the-badge&logo=openwrt&logoColor=white)](https://github.com/adm1n5ky/luci-app-dnsproxy)
 
 🌐 [English](#english) | 🇷🇺 [Русский](#русский)
-
 ---
 
 <a id="english"></a>
